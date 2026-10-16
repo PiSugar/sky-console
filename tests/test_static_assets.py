@@ -89,6 +89,7 @@ class StaticAssetTests(unittest.TestCase):
 
     def test_hardware_controls_use_live_websocket(self) -> None:
         script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+        stylesheet = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
 
         self.assertIn('message.type === "hardware_control"', script)
         self.assertIn("function handleHardwareControl(message)", script)
@@ -97,6 +98,9 @@ class StaticAssetTests(unittest.TestCase):
         self.assertIn("function selectNearestVisibleAircraft()", script)
         self.assertIn("bounds.contains(markerPosition)", script)
         self.assertIn("showAircraftQuickCard(nearest)", script)
+        self.assertIn("state.map.flyTo(nearestPosition", script)
+        self.assertIn("state.map.setZoom(state.map.getZoom() + delta, { animate: true })", script)
+        self.assertNotIn(".leaflet-tile-container,\n.leaflet-map-pane", stylesheet)
 
     def test_aircraft_detail_exposes_coordinate_verification(self) -> None:
         script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")

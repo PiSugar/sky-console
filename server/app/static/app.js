@@ -1064,6 +1064,7 @@ function selectNearestVisibleAircraft() {
   const bounds = state.map.getBounds();
   const centerPoint = state.map.getSize().divideBy(2);
   let nearest = null;
+  let nearestPosition = null;
   let nearestDistance = Number.POSITIVE_INFINITY;
   state.live.forEach((aircraft) => {
     const marker = state.aircraftMarkers.get(aircraft.icao);
@@ -1073,11 +1074,20 @@ function selectNearestVisibleAircraft() {
     const distance = state.map.latLngToContainerPoint(markerPosition).distanceTo(centerPoint);
     if (distance < nearestDistance) {
       nearest = aircraft.icao;
+      nearestPosition = markerPosition;
       nearestDistance = distance;
     }
   });
-  if (nearest) showAircraftQuickCard(nearest);
-  else showToast("当前视野没有飞机");
+  if (!nearest || !nearestPosition) {
+    showToast("当前视野没有飞机");
+    return;
+  }
+  showAircraftQuickCard(nearest);
+  state.map.flyTo(nearestPosition, state.map.getZoom(), {
+    animate: true,
+    duration: 0.65,
+    easeLinearity: 0.25,
+  });
 }
 
 function handleHardwareControl(message) {
@@ -1088,7 +1098,7 @@ function handleHardwareControl(message) {
     state.map.panBy([x * 22, y * 22], { animate: false });
   } else if (message.action === "zoom") {
     const delta = Math.max(-8, Math.min(8, Math.trunc(Number(message.delta) || 0)));
-    if (delta) state.map.setZoom(state.map.getZoom() + delta, { animate: false });
+    if (delta) state.map.setZoom(state.map.getZoom() + delta, { animate: true });
   } else if (message.action === "select_nearest") {
     selectNearestVisibleAircraft();
   }

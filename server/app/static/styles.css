@@ -431,13 +431,6 @@ h2 {
   background: #13211d;
 }
 
-.leaflet-pane,
-.leaflet-layer,
-.leaflet-tile-container,
-.leaflet-map-pane {
-  background: #13211d;
-}
-
 .leaflet-tile {
   backface-visibility: hidden;
   transform: translateZ(0);
