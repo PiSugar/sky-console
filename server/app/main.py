@@ -100,7 +100,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="SkyTrace ADS-B",
-    version="1.3.6",
+    version="1.3.7",
     docs_url=None,
     redoc_url=None,
     lifespan=lifespan,
@@ -368,7 +368,14 @@ def aircraft_radio(icao: str) -> dict:
     aircraft = _radio_aircraft_payload(normalized)
     if aircraft is None:
         raise HTTPException(status_code=404, detail="aircraft not found")
-    session = begin_radio_session(normalized)
+    session, created = begin_radio_session(normalized)
+    if not created:
+        return {
+            "queued": False,
+            "icao": normalized,
+            "callsign": aircraft.get("callsign"),
+            "reason": "already playing",
+        }
     thread = threading.Thread(
         target=_play_radio_background,
         args=(normalized, aircraft, session),

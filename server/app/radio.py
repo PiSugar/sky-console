@@ -144,14 +144,20 @@ class RadioSession:
             process.wait(timeout=1)
 
 
-def begin_radio_session(icao: str) -> RadioSession:
+def begin_radio_session(icao: str) -> tuple[RadioSession, bool]:
     global _current_session
-    session = RadioSession(icao)
     with _session_lock:
+        if (
+            _current_session is not None
+            and _current_session.icao == icao
+            and not _current_session.cancelled.is_set()
+        ):
+            return _current_session, False
         if _current_session is not None:
             _current_session.cancel()
+        session = RadioSession(icao)
         _current_session = session
-    return session
+    return session, True
 
 
 def finish_radio_session(session: RadioSession) -> None:

@@ -1083,6 +1083,7 @@ function selectNearestVisibleAircraft() {
     return;
   }
   showAircraftQuickCard(nearest);
+  playAircraftRadio(nearest);
   state.map.flyTo(nearestPosition, state.map.getZoom(), {
     animate: true,
     duration: 0.65,
@@ -1091,7 +1092,7 @@ function selectNearestVisibleAircraft() {
 }
 
 function handleHardwareControl(message) {
-  if (!state.map || !document.querySelector("#view-live")?.classList.contains("is-active")) return;
+  if (document.hidden || !state.map || !document.querySelector("#view-live")?.classList.contains("is-active")) return;
   if (message.action === "pan") {
     const x = Math.max(-1, Math.min(1, Number(message.x) || 0));
     const y = Math.max(-1, Math.min(1, Number(message.y) || 0));

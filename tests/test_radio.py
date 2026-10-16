@@ -3,6 +3,8 @@ from __future__ import annotations
 import unittest
 
 from server.app.radio import (
+    begin_radio_session,
+    finish_radio_session,
     radio_intro_text,
     radio_route_text,
     radio_text,
@@ -11,6 +13,17 @@ from server.app.radio import (
 
 
 class RadioTests(unittest.TestCase):
+    def test_duplicate_session_for_same_aircraft_is_reused(self) -> None:
+        first, first_created = begin_radio_session("7823B7")
+        duplicate, duplicate_created = begin_radio_session("7823B7")
+        try:
+            self.assertTrue(first_created)
+            self.assertFalse(duplicate_created)
+            self.assertIs(first, duplicate)
+            self.assertFalse(first.cancelled.is_set())
+        finally:
+            finish_radio_session(first)
+
     def test_radio_text_uses_spoken_callsign_and_route(self) -> None:
         text = radio_text(
             {
