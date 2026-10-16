@@ -64,6 +64,27 @@ class LiveHub:
 
         self._wake.set()
 
+    async def broadcast(self, message: dict[str, Any]) -> None:
+        """Send an out-of-band event to every connected browser."""
+
+        async with self._lock:
+            clients = tuple(self._clients)
+        if not clients:
+            return
+        results = await asyncio.gather(
+            *(client.send_json(message) for client in clients),
+            return_exceptions=True,
+        )
+        failed = [
+            client
+            for client, result in zip(clients, results, strict=True)
+            if isinstance(result, BaseException)
+        ]
+        if failed:
+            async with self._lock:
+                for client in failed:
+                    self._clients.discard(client)
+
     async def _snapshot(self) -> dict[str, Any]:
         return await asyncio.to_thread(self.snapshot_factory)
 
@@ -87,16 +108,4 @@ class LiveHub:
             except Exception:
                 logger.exception("failed to build ADS-B live snapshot")
                 continue
-            results = await asyncio.gather(
-                *(client.send_json(snapshot) for client in clients),
-                return_exceptions=True,
-            )
-            failed = [
-                client
-                for client, result in zip(clients, results, strict=True)
-                if isinstance(result, BaseException)
-            ]
-            if failed:
-                async with self._lock:
-                    for client in failed:
-                        self._clients.discard(client)
+            await self.broadcast(snapshot)

@@ -1059,6 +1059,41 @@ function liveSocketUrl() {
   return `${protocol}//${window.location.host}/ws/v1/live`;
 }
 
+function selectNearestVisibleAircraft() {
+  if (!state.map) return;
+  const bounds = state.map.getBounds();
+  const centerPoint = state.map.getSize().divideBy(2);
+  let nearest = null;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  state.live.forEach((aircraft) => {
+    const marker = state.aircraftMarkers.get(aircraft.icao);
+    if (!marker) return;
+    const markerPosition = marker.getLatLng();
+    if (!bounds.contains(markerPosition)) return;
+    const distance = state.map.latLngToContainerPoint(markerPosition).distanceTo(centerPoint);
+    if (distance < nearestDistance) {
+      nearest = aircraft.icao;
+      nearestDistance = distance;
+    }
+  });
+  if (nearest) showAircraftQuickCard(nearest);
+  else showToast("当前视野没有飞机");
+}
+
+function handleHardwareControl(message) {
+  if (!state.map || !document.querySelector("#view-live")?.classList.contains("is-active")) return;
+  if (message.action === "pan") {
+    const x = Math.max(-1, Math.min(1, Number(message.x) || 0));
+    const y = Math.max(-1, Math.min(1, Number(message.y) || 0));
+    state.map.panBy([x * 22, y * 22], { animate: false });
+  } else if (message.action === "zoom") {
+    const delta = Math.max(-8, Math.min(8, Math.trunc(Number(message.delta) || 0)));
+    if (delta) state.map.setZoom(state.map.getZoom() + delta, { animate: false });
+  } else if (message.action === "select_nearest") {
+    selectNearestVisibleAircraft();
+  }
+}
+
 function connectLiveSocket() {
   window.clearTimeout(state.socketRetryTimer);
   if (state.socketStopped || state.socket?.readyState === WebSocket.OPEN || state.socket?.readyState === WebSocket.CONNECTING) return;
@@ -1077,6 +1112,7 @@ function connectLiveSocket() {
     try {
       const message = JSON.parse(event.data);
       if (message.type === "snapshot") applyLiveSnapshot(message);
+      else if (message.type === "hardware_control") handleHardwareControl(message);
     } catch (_error) {
       showToast("收到无法识别的实时数据");
     }

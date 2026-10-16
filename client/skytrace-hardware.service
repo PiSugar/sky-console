@@ -1,0 +1,18 @@
+[Unit]
+Description=SkyTrace M5Stack hardware controls
+After=adsb-server.service
+Requires=adsb-server.service
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+SupplementaryGroups=i2c gpio
+WorkingDirectory=/home/pi/adsb-tracker
+ExecStart=/usr/bin/python3 /home/pi/adsb-tracker/client/hardware_bridge.py
+Restart=always
+RestartSec=2
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

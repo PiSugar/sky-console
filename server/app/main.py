@@ -28,7 +28,7 @@ from .db import Database
 from .decoder import decode_mode_s
 from .enrichment import EnrichmentService
 from .live_store import LiveStore
-from .models import IngestBatch
+from .models import HardwareControlEvent, IngestBatch
 from .radio import (
     begin_radio_session,
     finish_radio_session,
@@ -100,7 +100,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="SkyTrace ADS-B",
-    version="1.3.4",
+    version="1.3.5",
     docs_url=None,
     redoc_url=None,
     lifespan=lifespan,
@@ -162,6 +162,14 @@ def close_kiosk(request: Request, background_tasks: BackgroundTasks) -> dict:
         raise HTTPException(status_code=403, detail="local kiosk only")
     background_tasks.add_task(close_kiosk_process)
     return {"closing": True}
+
+
+@app.post("/api/v1/hardware/event", include_in_schema=False)
+async def hardware_event(request: Request, event: HardwareControlEvent) -> dict:
+    if request.client is None or request.client.host not in {"127.0.0.1", "::1"}:
+        raise HTTPException(status_code=403, detail="local hardware only")
+    await live_hub.broadcast({"type": "hardware_control", **event.model_dump()})
+    return {"accepted": True}
 
 
 @app.post("/api/v1/ingest", dependencies=[Depends(require_ingest_key)])

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
@@ -87,3 +87,12 @@ class IngestBatch(BaseModel):
     receiver: ReceiverPayload
     aircraft: list[AircraftState] = Field(default_factory=list, max_length=1000)
     messages: list[RawMessage] = Field(default_factory=list, max_length=5000)
+
+
+class HardwareControlEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["pan", "zoom", "select_nearest"]
+    x: float = Field(default=0.0, ge=-1.0, le=1.0)
+    y: float = Field(default=0.0, ge=-1.0, le=1.0)
+    delta: int = Field(default=0, ge=-8, le=8)
