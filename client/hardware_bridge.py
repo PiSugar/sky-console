@@ -21,9 +21,12 @@ JOYSTICK_BUTTON_REGISTER = 0x20
 SCROLL_ADDRESS = 0x40
 SCROLL_ENCODER_REGISTER = 0x10
 WHISPLAY_BUTTON_LINE = 17
+WHISPLAY_RED_LINE = 25
+WHISPLAY_GREEN_LINE = 24
 WHISPLAY_BLUE_LINE = 23
 SIGNAL_PULSE_SECONDS = 0.12
 SIGNAL_PERIOD_SECONDS = 2.0
+STATUS_POLL_SECONDS = 0.15
 
 
 def normalize_axis(value: int, deadzone: int = 18) -> float:
@@ -63,11 +66,12 @@ def post_event(endpoint: str, event: dict[str, object]) -> None:
         response.read()
 
 
-def fetch_active_aircraft_count(endpoint: str) -> int:
+def fetch_hardware_status(endpoint: str) -> tuple[bool, bool]:
     with urllib.request.urlopen(endpoint, timeout=0.8) as response:
         payload = json.load(response)
-    aircraft = payload.get("aircraft", []) if isinstance(payload, dict) else []
-    return len(aircraft) if isinstance(aircraft, list) else 0
+    if not isinstance(payload, dict):
+        return False, False
+    return bool(payload.get("signal_active")), bool(payload.get("radio_playing"))
 
 
 def open_button() -> tuple[Any, Any]:
@@ -98,8 +102,22 @@ def read_button(button: Any) -> bool:
     return False
 
 
-def open_blue_led() -> tuple[Any, Any]:
-    """Open the active-low blue channel and leave it switched off."""
+def rgb_output_values(color: str) -> dict[int, int]:
+    """Return active-low GPIO values for one exclusive RGB color."""
+
+    enabled_line = {
+        "red": WHISPLAY_RED_LINE,
+        "green": WHISPLAY_GREEN_LINE,
+        "blue": WHISPLAY_BLUE_LINE,
+    }.get(color)
+    return {
+        line: 0 if line == enabled_line else 1
+        for line in (WHISPLAY_RED_LINE, WHISPLAY_GREEN_LINE, WHISPLAY_BLUE_LINE)
+    }
+
+
+def open_rgb_led() -> tuple[Any, Any]:
+    """Take over all active-low Whisplay RGB channels, initially off."""
 
     import gpiod
 
@@ -108,43 +126,54 @@ def open_blue_led() -> tuple[Any, Any]:
 
         chip = gpiod.Chip("/dev/gpiochip0")
         request = chip.request_lines(
-            consumer="skytrace-signal-led",
+            consumer="skytrace-status-led",
             config={
-                WHISPLAY_BLUE_LINE: gpiod.LineSettings(
+                line: gpiod.LineSettings(
                     direction=Direction.OUTPUT,
                     output_value=Value.ACTIVE,
+                )
+                for line in (
+                    WHISPLAY_RED_LINE,
+                    WHISPLAY_GREEN_LINE,
+                    WHISPLAY_BLUE_LINE,
                 )
             },
         )
         return request, chip
 
     chip = gpiod.Chip("gpiochip0")
-    line = chip.get_line(WHISPLAY_BLUE_LINE)
-    line.request(
-        consumer="skytrace-signal-led",
-        type=gpiod.LINE_REQ_DIR_OUT,
-        default_vals=[1],
-    )
-    return line, chip
+    lines = {}
+    for offset in (WHISPLAY_RED_LINE, WHISPLAY_GREEN_LINE, WHISPLAY_BLUE_LINE):
+        line = chip.get_line(offset)
+        line.request(
+            consumer="skytrace-status-led",
+            type=gpiod.LINE_REQ_DIR_OUT,
+            default_vals=[1],
+        )
+        lines[offset] = line
+    return lines, chip
 
 
-def set_blue_led(led: Any, enabled: bool) -> None:
-    """Drive the Whisplay blue LED, whose GPIO channel is active-low."""
+def set_rgb_led(led: Any, color: str) -> None:
+    values = rgb_output_values(color)
+    if isinstance(led, dict):
+        for line, value in values.items():
+            led[line].set_value(value)
+        return
 
-    value = 0 if enabled else 1
     try:
         from gpiod.line import Value
 
-        value = Value.INACTIVE if enabled else Value.ACTIVE
+        values = {
+            line: Value.INACTIVE if value == 0 else Value.ACTIVE
+            for line, value in values.items()
+        }
     except (ImportError, AttributeError):
         pass
-    try:
-        led.set_value(WHISPLAY_BLUE_LINE, value)
-    except TypeError:
-        led.set_value(value)
+    led.set_values(values)
 
 
-class SignalLed:
+class StatusLed:
     def __init__(self, endpoint: str) -> None:
         self.endpoint = endpoint
         self._stop = threading.Event()
@@ -153,7 +182,7 @@ class SignalLed:
     def start(self) -> None:
         self._thread = threading.Thread(
             target=self._run,
-            name="skytrace-signal-led",
+            name="skytrace-status-led",
             daemon=True,
         )
         self._thread.start()
@@ -165,42 +194,58 @@ class SignalLed:
 
     def _run(self) -> None:
         led = chip = None
-        previous_active: bool | None = None
+        previous_state: str | None = None
         try:
-            led, chip = open_blue_led()
-            LOGGER.info("Whisplay signal LED ready (blue gpio=%s)", WHISPLAY_BLUE_LINE)
+            led, chip = open_rgb_led()
+            LOGGER.info(
+                "Whisplay status LED ready (red=%s green=%s blue=%s)",
+                WHISPLAY_RED_LINE,
+                WHISPLAY_GREEN_LINE,
+                WHISPLAY_BLUE_LINE,
+            )
+            signal_active = radio_playing = False
+            next_status_poll = next_pulse = 0.0
+            pulse_until = 0.0
+            previous_color: str | None = None
+            last_status_warning = 0.0
             while not self._stop.is_set():
-                try:
-                    aircraft_count = fetch_active_aircraft_count(self.endpoint)
-                    active = aircraft_count > 0
-                except Exception as exc:
-                    active = False
-                    aircraft_count = 0
-                    LOGGER.warning("signal status read failed: %s", exc)
+                now = time.monotonic()
+                if now >= next_status_poll:
+                    try:
+                        signal_active, radio_playing = fetch_hardware_status(self.endpoint)
+                    except Exception as exc:
+                        signal_active = radio_playing = False
+                        if now - last_status_warning >= 10.0:
+                            LOGGER.warning("hardware status read failed: %s", exc)
+                            last_status_warning = now
+                    next_status_poll = now + STATUS_POLL_SECONDS
 
-                if active != previous_active:
-                    LOGGER.info(
-                        "Whisplay signal LED active=%s aircraft=%s",
-                        active,
-                        aircraft_count,
-                    )
-                    previous_active = active
+                state = "speaking" if radio_playing else ("signal" if signal_active else "no-signal")
+                if state != previous_state:
+                    LOGGER.info("Whisplay status LED state=%s", state)
+                    previous_state = state
+                    next_pulse = now
 
-                if active:
-                    set_blue_led(led, True)
-                    if self._stop.wait(SIGNAL_PULSE_SECONDS):
-                        break
-                    set_blue_led(led, False)
-                    self._stop.wait(SIGNAL_PERIOD_SECONDS - SIGNAL_PULSE_SECONDS)
+                if radio_playing:
+                    color = "green"
                 else:
-                    set_blue_led(led, False)
-                    self._stop.wait(SIGNAL_PERIOD_SECONDS)
+                    if now >= next_pulse:
+                        pulse_until = now + SIGNAL_PULSE_SECONDS
+                        next_pulse = now + SIGNAL_PERIOD_SECONDS
+                    color = ("blue" if signal_active else "red") if now < pulse_until else "off"
+                if color != previous_color:
+                    set_rgb_led(led, color)
+                    previous_color = color
+                self._stop.wait(0.03)
         except Exception:
-            LOGGER.exception("Whisplay signal LED unavailable")
+            LOGGER.exception("Whisplay status LED unavailable")
         finally:
             if led is not None:
-                set_blue_led(led, False)
-                if hasattr(led, "release"):
+                set_rgb_led(led, "off")
+                if isinstance(led, dict):
+                    for line in led.values():
+                        line.release()
+                elif hasattr(led, "release"):
                     led.release()
             if chip is not None and hasattr(chip, "close"):
                 chip.close()
@@ -225,8 +270,8 @@ class Bridge:
         from smbus2 import SMBus
 
         button, chip = open_button()
-        signal_led = SignalLed(self.signal_endpoint)
-        signal_led.start()
+        status_led = StatusLed(self.signal_endpoint)
+        status_led.start()
         previous_whisplay_button = read_button(button)
         previous_joystick_button: int | None = None
         next_joystick_button_poll = 0.0
@@ -287,7 +332,7 @@ class Bridge:
                     if remaining > 0:
                         time.sleep(remaining)
         finally:
-            signal_led.stop()
+            status_led.stop()
             if hasattr(button, "release"):
                 button.release()
             if hasattr(chip, "close"):
@@ -303,7 +348,7 @@ def main() -> None:
         ),
         signal_endpoint=os.getenv(
             "SKYTRACE_SIGNAL_ENDPOINT",
-            "http://127.0.0.1:38391/api/v1/live",
+            "http://127.0.0.1:38391/api/v1/hardware/status",
         ),
         joystick_x_sign=int(os.getenv("SKYTRACE_JOYSTICK_X_SIGN", "-1")),
         joystick_y_sign=int(os.getenv("SKYTRACE_JOYSTICK_Y_SIGN", "-1")),

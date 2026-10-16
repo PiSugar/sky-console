@@ -13,6 +13,8 @@ from typing import Any
 
 _session_lock = threading.Lock()
 _current_session: "RadioSession | None" = None
+_audio_lock = threading.Lock()
+_audio_playbacks = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,6 +169,17 @@ def finish_radio_session(session: RadioSession) -> None:
             _current_session = None
 
 
+def is_radio_playing() -> bool:
+    with _audio_lock:
+        return _audio_playbacks > 0
+
+
+def _set_audio_playing(active: bool) -> None:
+    global _audio_playbacks
+    with _audio_lock:
+        _audio_playbacks = max(0, _audio_playbacks + (1 if active else -1))
+
+
 def _route_label(aircraft: dict[str, Any], prefix: str) -> str:
     code = aircraft.get(f"{prefix}_iata") or aircraft.get(f"{prefix}_icao")
     city = aircraft.get(f"{prefix}_city")
@@ -253,6 +266,7 @@ def _run_cancelable(
     session: RadioSession,
     input_text: str | None = None,
     timeout: float,
+    audio_playback: bool = False,
 ) -> None:
     if session.cancelled.is_set():
         raise subprocess.SubprocessError("radio session cancelled")
@@ -264,6 +278,8 @@ def _run_cancelable(
         text=True,
     )
     session.set_process(process)
+    if audio_playback:
+        _set_audio_playing(True)
     started_at = time.monotonic()
     try:
         if input_text is not None and process.stdin is not None:
@@ -281,6 +297,8 @@ def _run_cancelable(
         if process.poll() is None:
             RadioSession._terminate_process(process)
         session.set_process(None)
+        if audio_playback:
+            _set_audio_playing(False)
 
 
 def _audio_paths_for_segment(directory: str, segment: str) -> tuple[Path, Path, Path]:
@@ -342,7 +360,12 @@ def play_radio_text(
                     session=session,
                     timeout=5,
                 )
-                _run_cancelable(["aplay", "-q", "-D", audio_device, str(chirp_wav)], session=session, timeout=5)
+                _run_cancelable(
+                    ["aplay", "-q", "-D", audio_device, str(chirp_wav)],
+                    session=session,
+                    timeout=5,
+                    audio_playback=True,
+                )
             _run_cancelable(
                 [
                     tts_command,
@@ -396,7 +419,12 @@ def play_radio_text(
                 session=session,
                 timeout=10,
             )
-            _run_cancelable(["aplay", "-q", "-D", audio_device, str(radio_wav)], session=session, timeout=20)
+            _run_cancelable(
+                ["aplay", "-q", "-D", audio_device, str(radio_wav)],
+                session=session,
+                timeout=20,
+                audio_playback=True,
+            )
         return {"played": True, "voice": voice.name, "model": model_path, "flight": flight, "text": text}
     except (OSError, subprocess.SubprocessError) as exc:
         return {"played": False, "reason": f"{type(exc).__name__}: {exc}"}

@@ -5,6 +5,7 @@ import unittest
 from server.app.radio import (
     begin_radio_session,
     finish_radio_session,
+    is_radio_playing,
     radio_intro_text,
     radio_route_text,
     radio_text,
@@ -54,6 +55,9 @@ class RadioTests(unittest.TestCase):
 
     def test_voice_is_stable_per_aircraft(self) -> None:
         self.assertEqual(voice_for_aircraft("7823B7"), voice_for_aircraft("7823b7"))
+
+    def test_radio_is_idle_without_audio_playback(self) -> None:
+        self.assertFalse(is_radio_playing())
 
 
 if __name__ == "__main__":

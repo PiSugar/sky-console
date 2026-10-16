@@ -33,6 +33,7 @@ from .radio import (
     begin_radio_session,
     finish_radio_session,
     has_confirmed_route,
+    is_radio_playing,
     play_radio_text,
     radio_intro_text,
     radio_route_text,
@@ -100,7 +101,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="SkyTrace ADS-B",
-    version="1.4.0",
+    version="1.4.1",
     docs_url=None,
     redoc_url=None,
     lifespan=lifespan,
@@ -170,6 +171,17 @@ async def hardware_event(request: Request, event: HardwareControlEvent) -> dict:
         raise HTTPException(status_code=403, detail="local hardware only")
     await live_hub.broadcast({"type": "hardware_control", **event.model_dump()})
     return {"accepted": True}
+
+
+@app.get("/api/v1/hardware/status", include_in_schema=False)
+def hardware_status(request: Request) -> dict:
+    if request.client is None or request.client.host not in {"127.0.0.1", "::1"}:
+        raise HTTPException(status_code=403, detail="local hardware only")
+    live_data = live_store.snapshot() if settings.realtime_first else database.live_aircraft()
+    return {
+        "signal_active": bool(live_data.get("aircraft")),
+        "radio_playing": is_radio_playing(),
+    }
 
 
 @app.post("/api/v1/ingest", dependencies=[Depends(require_ingest_key)])

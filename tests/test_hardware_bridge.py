@@ -41,29 +41,22 @@ class HardwareBridgeTests(unittest.TestCase):
         self.assertEqual(hardware_bridge.signed_counter_delta(-32768, 32767), 1)
         self.assertEqual(hardware_bridge.signed_counter_delta(32767, -32768), -1)
 
-    def test_active_aircraft_count_uses_live_snapshot(self) -> None:
-        response = io.BytesIO(b'{"aircraft":[{"icao":"ABC123"},{"icao":"DEF456"}]}')
+    def test_hardware_status_tracks_signal_and_radio(self) -> None:
+        response = io.BytesIO(b'{"signal_active":true,"radio_playing":false}')
         response.__enter__ = lambda value: value
         response.__exit__ = lambda *_args: None
 
         with patch.object(hardware_bridge.urllib.request, "urlopen", return_value=response):
             self.assertEqual(
-                hardware_bridge.fetch_active_aircraft_count("http://example.test/live"),
-                2,
+                hardware_bridge.fetch_hardware_status("http://example.test/status"),
+                (True, False),
             )
 
-    def test_whisplay_blue_led_is_active_low_gpio23(self) -> None:
-        class Led:
-            def __init__(self) -> None:
-                self.values: list[int] = []
-
-            def set_value(self, value: int) -> None:
-                self.values.append(value)
-
-        led = Led()
-        with patch.dict(sys.modules, {"gpiod.line": None}):
-            hardware_bridge.set_blue_led(led, True)
-            hardware_bridge.set_blue_led(led, False)
-
+    def test_whisplay_rgb_led_is_exclusive_and_active_low(self) -> None:
+        self.assertEqual(hardware_bridge.WHISPLAY_RED_LINE, 25)
+        self.assertEqual(hardware_bridge.WHISPLAY_GREEN_LINE, 24)
         self.assertEqual(hardware_bridge.WHISPLAY_BLUE_LINE, 23)
-        self.assertEqual(led.values, [0, 1])
+        self.assertEqual(hardware_bridge.rgb_output_values("red"), {25: 0, 24: 1, 23: 1})
+        self.assertEqual(hardware_bridge.rgb_output_values("green"), {25: 1, 24: 0, 23: 1})
+        self.assertEqual(hardware_bridge.rgb_output_values("blue"), {25: 1, 24: 1, 23: 0})
+        self.assertEqual(hardware_bridge.rgb_output_values("off"), {25: 1, 24: 1, 23: 1})
