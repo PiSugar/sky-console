@@ -15,6 +15,12 @@ SPEC.loader.exec_module(hardware_bridge)
 
 
 class HardwareBridgeTests(unittest.TestCase):
+    def test_default_joystick_mapping_is_rotated_180_degrees(self) -> None:
+        source = MODULE_PATH.read_text(encoding="utf-8")
+
+        self.assertIn('SKYTRACE_JOYSTICK_X_SIGN", "-1"', source)
+        self.assertIn('SKYTRACE_JOYSTICK_Y_SIGN", "-1"', source)
+
     def test_axis_deadzone_and_range(self) -> None:
         self.assertEqual(hardware_bridge.normalize_axis(0), 0.0)
         self.assertEqual(hardware_bridge.normalize_axis(18), 0.0)

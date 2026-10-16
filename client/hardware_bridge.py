@@ -163,8 +163,8 @@ def main() -> None:
             "SKYTRACE_HARDWARE_ENDPOINT",
             "http://127.0.0.1:38391/api/v1/hardware/event",
         ),
-        joystick_x_sign=int(os.getenv("SKYTRACE_JOYSTICK_X_SIGN", "1")),
-        joystick_y_sign=int(os.getenv("SKYTRACE_JOYSTICK_Y_SIGN", "1")),
+        joystick_x_sign=int(os.getenv("SKYTRACE_JOYSTICK_X_SIGN", "-1")),
+        joystick_y_sign=int(os.getenv("SKYTRACE_JOYSTICK_Y_SIGN", "-1")),
         scroll_sign=int(os.getenv("SKYTRACE_SCROLL_SIGN", "1")),
         deadzone=int(os.getenv("SKYTRACE_JOYSTICK_DEADZONE", "18")),
     )
