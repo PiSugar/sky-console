@@ -1,0 +1,26 @@
+services:
+  adsb-client:
+    build:
+      context: .
+    image: adsb-tracker-client:1.0.0
+    container_name: adsb-tracker-client
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - client.env
+    volumes:
+      - /dev/bus/usb:/dev/bus/usb
+      - ./data:/data
+    device_cgroup_rules:
+      - "c 189:* rmw"
+    stop_grace_period: 20s
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import os,time; assert time.time()-os.path.getmtime('/tmp/adsb-agent-health') < 30"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s

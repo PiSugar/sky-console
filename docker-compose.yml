@@ -1,0 +1,54 @@
+services:
+  adsb-server:
+    build:
+      context: ./server
+    image: adsb-tracker-server:1.3.4
+    container_name: adsb-tracker-server
+    restart: unless-stopped
+    ports:
+      - "${PUBLIC_PORT:-38391}:8080"
+    environment:
+      DATABASE_PATH: ${DATABASE_PATH:-/data/adsb.sqlite3}
+      INGEST_API_KEY: ${INGEST_API_KEY:?INGEST_API_KEY must be set in .env}
+      RETENTION_HOURS: ${RETENTION_HOURS:-}
+      RETENTION_DAYS: ${RETENTION_DAYS:-90}
+      ACTIVE_SECONDS: ${ACTIVE_SECONDS:-90}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://hive.hahapiggy.vip:38391}
+      ENRICHMENT_ENABLED: ${ENRICHMENT_ENABLED:-true}
+      ENRICHMENT_BASE_URL: ${ENRICHMENT_BASE_URL:-https://api.adsbdb.com/v0}
+      ENRICHMENT_SUCCESS_HOURS: ${ENRICHMENT_SUCCESS_HOURS:-168}
+      ENRICHMENT_RETRY_HOURS: ${ENRICHMENT_RETRY_HOURS:-6}
+      ENRICHMENT_TIMEOUT_SECONDS: ${ENRICHMENT_TIMEOUT_SECONDS:-8}
+      RADIO_ENABLED: ${RADIO_ENABLED:-false}
+      RADIO_TTS_COMMAND: ${RADIO_TTS_COMMAND:-piper}
+      RADIO_VOICE_MODEL: ${RADIO_VOICE_MODEL:-/home/pi/piper/en_US-ryan-medium.onnx}
+      RADIO_VOICE_CONFIG: ${RADIO_VOICE_CONFIG:-/home/pi/piper/en_US-ryan-medium.onnx.json}
+      RADIO_AUDIO_DEVICE: ${RADIO_AUDIO_DEVICE:-plughw:2,0}
+      RADIO_TMP_DIR: ${RADIO_TMP_DIR:-/tmp}
+    volumes:
+      - ../data/abs_d:/data
+      - ../SSL:/ssl:ro
+    command:
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --proxy-headers
+      - --forwarded-allow-ips
+      - "*"
+      - --ssl-keyfile
+      - /ssl/privkey.pem
+      - --ssl-certfile
+      - /ssl/fullchain.pem
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import ssl,urllib.request; urllib.request.urlopen('https://127.0.0.1:8080/healthz', timeout=3, context=ssl._create_unverified_context())"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

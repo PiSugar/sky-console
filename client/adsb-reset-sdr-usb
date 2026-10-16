@@ -1,0 +1,51 @@
+#!/usr/bin/env sh
+set -eu
+
+USB_ROOT="${ADSB_USB_ROOT:-usb1}"
+RTL_ID="${ADSB_RTL_ID:-0bda:2832}"
+
+log() {
+  printf "adsb-reset-sdr-usb: %s\n" "$*" >&2
+}
+
+rtl_present() {
+  if command -v lsusb >/dev/null 2>&1; then
+    lsusb | grep -qi "$RTL_ID"
+  else
+    return 1
+  fi
+}
+
+unbind_dvb() {
+  for iface in /sys/bus/usb/drivers/dvb_usb_rtl28xxu/*:*; do
+    [ -e "$iface" ] || continue
+    name=$(basename "$iface")
+    printf "%s" "$name" > /sys/bus/usb/drivers/dvb_usb_rtl28xxu/unbind 2>/dev/null || true
+  done
+}
+
+if rtl_present; then
+  log "RTL-SDR present; unbinding DVB driver if needed"
+  unbind_dvb
+  exit 0
+fi
+
+if [ ! -w "/sys/bus/usb/devices/$USB_ROOT/authorized" ]; then
+  log "USB root $USB_ROOT is not writable or not present"
+  exit 1
+fi
+
+log "RTL-SDR missing; power cycling $USB_ROOT"
+printf 0 > "/sys/bus/usb/devices/$USB_ROOT/authorized"
+sleep 2
+printf 1 > "/sys/bus/usb/devices/$USB_ROOT/authorized"
+sleep 4
+
+if rtl_present; then
+  log "RTL-SDR re-enumerated"
+  unbind_dvb
+  exit 0
+fi
+
+log "RTL-SDR still missing after USB reset"
+exit 1
