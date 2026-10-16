@@ -21,6 +21,12 @@ class HardwareBridgeTests(unittest.TestCase):
         self.assertIn('SKYTRACE_JOYSTICK_X_SIGN", "-1"', source)
         self.assertIn('SKYTRACE_JOYSTICK_Y_SIGN", "-1"', source)
 
+    def test_joystick_button_toggles_aircraft_follow(self) -> None:
+        source = MODULE_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("JOYSTICK_BUTTON_REGISTER = 0x20", source)
+        self.assertIn('self.emit({"action": "toggle_follow"})', source)
+
     def test_axis_deadzone_and_range(self) -> None:
         self.assertEqual(hardware_bridge.normalize_axis(0), 0.0)
         self.assertEqual(hardware_bridge.normalize_axis(18), 0.0)

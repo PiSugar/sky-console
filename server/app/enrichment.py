@@ -158,7 +158,7 @@ class EnrichmentService:
             response = self._get_json(f"aircraft/{urllib.parse.quote(icao)}")
             aircraft = response.get("aircraft") if isinstance(response, dict) else None
             if not isinstance(aircraft, dict):
-                raise LookupError("公开资料库暂未收录这架飞机")
+                raise LookupError("This aircraft is not available in the public database")
             values = {
                 "registration": _text(aircraft.get("registration"), 32),
                 "manufacturer": _text(aircraft.get("manufacturer"), 100),
@@ -189,7 +189,7 @@ class EnrichmentService:
             response = self._get_json(f"callsign/{urllib.parse.quote(callsign)}")
             route = response.get("flightroute") if isinstance(response, dict) else None
             if not isinstance(route, dict):
-                raise LookupError("公开资料库暂未收录这个呼号的航线")
+                raise LookupError("No route is available for this callsign in the public database")
             airline = route.get("airline") if isinstance(route.get("airline"), dict) else {}
             origin = route.get("origin") if isinstance(route.get("origin"), dict) else {}
             destination = (
@@ -250,7 +250,7 @@ class EnrichmentService:
                 body = response.read(1_000_001)
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
-                raise LookupError("公开资料库没有匹配记录") from exc
+                raise LookupError("No matching record was found in the public database") from exc
             raise
         if len(body) > 1_000_000:
             raise ValueError("enrichment response is too large")

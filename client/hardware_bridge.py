@@ -16,6 +16,7 @@ from typing import Any
 LOGGER = logging.getLogger("skytrace.hardware")
 JOYSTICK_ADDRESS = 0x63
 JOYSTICK_OFFSET_8_REGISTER = 0x60
+JOYSTICK_BUTTON_REGISTER = 0x20
 SCROLL_ADDRESS = 0x40
 SCROLL_ENCODER_REGISTER = 0x10
 WHISPLAY_BUTTON_LINE = 17
@@ -104,7 +105,9 @@ class Bridge:
         from smbus2 import SMBus
 
         button, chip = open_button()
-        previous_button = read_button(button)
+        previous_whisplay_button = read_button(button)
+        previous_joystick_button: int | None = None
+        next_joystick_button_poll = 0.0
         previous_encoder: int | None = None
         LOGGER.info("hardware bridge ready (joystick=0x63 scroll=0x40 gpio=17)")
         try:
@@ -122,6 +125,18 @@ class Bridge:
                             self.emit({"action": "pan", "x": x, "y": y})
                     except OSError as exc:
                         LOGGER.warning("joystick read failed: %s", exc)
+
+                    if loop_started >= next_joystick_button_poll:
+                        try:
+                            joystick_button = bus.read_byte_data(
+                                JOYSTICK_ADDRESS, JOYSTICK_BUTTON_REGISTER
+                            )
+                            if joystick_button == 0 and previous_joystick_button == 1:
+                                self.emit({"action": "toggle_follow"})
+                            previous_joystick_button = joystick_button
+                        except OSError as exc:
+                            LOGGER.warning("joystick button read failed: %s", exc)
+                        next_joystick_button_poll = loop_started + 0.12
 
                     try:
                         raw_encoder = bus.read_i2c_block_data(
@@ -142,9 +157,9 @@ class Bridge:
                         LOGGER.warning("scroll read failed: %s", exc)
 
                     pressed = read_button(button)
-                    if pressed and not previous_button:
+                    if pressed and not previous_whisplay_button:
                         self.emit({"action": "select_nearest"})
-                    previous_button = pressed
+                    previous_whisplay_button = pressed
 
                     remaining = 0.05 - (time.monotonic() - loop_started)
                     if remaining > 0:

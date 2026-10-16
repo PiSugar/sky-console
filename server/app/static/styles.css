@@ -416,6 +416,32 @@ h2 {
 
 .map-toolbar button { pointer-events: auto; }
 
+.map-follow-status {
+  position: absolute;
+  z-index: 1080;
+  top: 54px;
+  left: 50%;
+  max-width: calc(100% - 96px);
+  padding: 6px 10px;
+  border: 1px solid rgba(124, 240, 178, 0.55);
+  border-radius: 999px;
+  color: var(--green);
+  background: rgba(7, 25, 18, 0.9);
+  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.32);
+  transform: translateX(-50%);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  overflow: hidden;
+  pointer-events: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-follow-status[hidden] { display: none; }
+
+.map-follow-status strong { color: var(--text); }
+
 .legend-dot {
   width: 6px;
   height: 6px;

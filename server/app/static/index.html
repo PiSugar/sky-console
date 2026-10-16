@@ -1,38 +1,38 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#08110f" />
     <meta
       name="description"
-      content="SkyTrace ADS-B 实时飞机地图、接收历史和原始报文档案"
+      content="SkyTrace ADS-B live aircraft map, reception history, and raw message archive"
     />
-    <title>SkyTrace · ADS-B 空情台</title>
-    <link rel="preconnect" href="https://webrd01.is.autonavi.com" />
+    <title>SkyTrace · ADS-B Console</title>
+    <link rel="preconnect" href="https://server.arcgisonline.com" />
     <link rel="preconnect" href="https://tile.openstreetmap.org" />
     <link rel="stylesheet" href="/assets/vendor/leaflet/leaflet.css?v=1.9.4" />
-    <link rel="stylesheet" href="/assets/styles.css?v=1.3.38" />
+    <link rel="stylesheet" href="/assets/styles.css?v=1.3.39" />
   </head>
   <body>
     <div class="noise" aria-hidden="true"></div>
     <header class="topbar">
-      <a class="brand" href="#live" aria-label="SkyTrace 首页">
+      <a class="brand" href="#live" aria-label="SkyTrace home">
         <span class="brand-mark"><span></span></span>
         <span>
           <strong>SKYTRACE</strong>
           <small>1090 MHz / ADS-B</small>
         </span>
       </a>
-      <nav class="nav" aria-label="主要导航">
-        <button class="nav-button is-active" data-view="live">实时空情</button>
-        <button class="nav-button" data-view="history">历史档案</button>
+      <nav class="nav" aria-label="Primary navigation">
+        <button class="nav-button is-active" data-view="live">Live</button>
+        <button class="nav-button" data-view="history">History</button>
       </nav>
       <div class="system-status">
         <span class="pulse-dot" id="status-dot"></span>
         <span>
-          <small>接收状态</small>
-          <strong id="status-text">正在连接</strong>
+          <small>RECEIVER STATUS</small>
+          <strong id="status-text">Connecting</strong>
         </span>
       </div>
     </header>
@@ -42,47 +42,50 @@
         <div class="section-heading">
           <div>
             <p class="eyebrow">LIVE AIRSPACE</p>
-            <h1 id="live-title">此刻，天线听见的天空</h1>
+            <h1 id="live-title">Aircraft heard by the antenna now</h1>
           </div>
-          <p class="last-update" id="last-update">等待第一批数据</p>
+          <p class="last-update" id="last-update">Waiting for the first update</p>
         </div>
 
-        <div class="stats-grid" aria-label="接收统计">
+        <div class="stats-grid" aria-label="Reception statistics">
           <article class="stat-card stat-primary">
-            <span>当前飞机</span>
+            <span>Active aircraft</span>
             <strong id="stat-active">—</strong>
-            <small>最近 90 秒有信号</small>
+            <small>Seen in the last 90 seconds</small>
           </article>
           <article class="stat-card">
-            <span>历史飞机</span>
+            <span>Historic aircraft</span>
             <strong id="stat-total">—</strong>
-            <small>不同 ICAO 地址</small>
+            <small>Unique ICAO addresses</small>
           </article>
           <article class="stat-card">
-            <span>24 小时报文</span>
+            <span>24-hour messages</span>
             <strong id="stat-messages">—</strong>
-            <small>已校验并入库</small>
+            <small>Validated and stored</small>
           </article>
           <article class="stat-card">
-            <span>在线接收站</span>
+            <span>Online receivers</span>
             <strong id="stat-receivers">—</strong>
-            <small id="receiver-name">等待树莓派</small>
+            <small id="receiver-name">Waiting for Raspberry Pi</small>
           </article>
         </div>
 
         <div class="live-layout">
-          <section class="map-shell" aria-label="实时飞机地图">
+          <section class="map-shell" aria-label="Live aircraft map">
             <div class="map-toolbar">
-              <span><i class="legend-dot aircraft-dot"></i>飞机</span>
-              <span><i class="legend-dot receiver-dot"></i>接收站</span>
-              <span id="map-gesture-hint" class="map-gesture-hint">滚轮直接缩放 · 空白处拖动平移</span>
-              <button id="map-source-toggle" type="button" aria-pressed="false" title="切换到国际 OpenStreetMap">底图：高德</button>
-              <button id="fit-map" type="button">显示全部</button>
+              <span><i class="legend-dot aircraft-dot"></i>Aircraft</span>
+              <span><i class="legend-dot receiver-dot"></i>Receiver</span>
+              <span id="map-gesture-hint" class="map-gesture-hint">Scroll to zoom · Drag to pan</span>
+              <button id="map-source-toggle" type="button" aria-pressed="false" title="Switch to OpenStreetMap">Map: Esri</button>
+              <button id="fit-map" type="button">Fit all</button>
             </div>
             <div id="map"></div>
-            <aside id="map-quick-card" class="map-quick-card" aria-label="飞机快速信息" aria-live="polite" hidden></aside>
+            <div id="map-follow-status" class="map-follow-status" role="status" aria-live="polite" hidden>
+              FOLLOWING <strong></strong><span> · MOVE MAP OR PRESS JOYSTICK TO RELEASE</span>
+            </div>
+            <aside id="map-quick-card" class="map-quick-card" aria-label="Aircraft quick information" aria-live="polite" hidden></aside>
             <div id="map-unavailable" class="map-unavailable" hidden>
-              地图组件未能加载，飞机列表仍可正常使用。
+              The map could not be loaded. The aircraft list remains available.
             </div>
           </section>
 
@@ -90,14 +93,14 @@
             <div class="panel-heading">
               <div>
                 <p class="eyebrow">SIGNAL CONTACTS</p>
-                <h2 id="live-list-title">当前目标</h2>
+                <h2 id="live-list-title">Current contacts</h2>
               </div>
               <span class="count-badge" id="live-count">0</span>
             </div>
             <div class="live-list" id="live-list">
               <div class="empty-state compact">
                 <span class="radar-loader"></span>
-                <p>等待 ADS-B 信号</p>
+                <p>Waiting for ADS-B signals</p>
               </div>
             </div>
           </aside>
@@ -108,11 +111,11 @@
         <div class="section-heading history-heading">
           <div>
             <p class="eyebrow">AIRCRAFT ARCHIVE</p>
-            <h1 id="history-title">曾经飞过接收范围的飞机</h1>
+            <h1 id="history-title">Aircraft previously seen in range</h1>
           </div>
           <label class="search-box">
             <span aria-hidden="true">⌕</span>
-            <input id="history-search" type="search" placeholder="搜索 ICAO、呼号或注册号" />
+            <input id="history-search" type="search" placeholder="Search ICAO, callsign, or registration" />
           </label>
         </div>
 
@@ -121,22 +124,22 @@
             <table>
               <thead>
                 <tr>
-                  <th>飞机</th>
-                  <th>最后信号</th>
-                  <th>最后高度</th>
-                  <th>地速 / 航向</th>
-                  <th>累计报文</th>
-                  <th><span class="sr-only">查看</span></th>
+                  <th>Aircraft</th>
+                  <th>Last signal</th>
+                  <th>Last altitude</th>
+                  <th>Ground speed / heading</th>
+                  <th>Messages</th>
+                  <th><span class="sr-only">View</span></th>
                 </tr>
               </thead>
               <tbody id="history-body"></tbody>
             </table>
           </div>
           <div class="archive-footer">
-            <span id="history-range">正在载入…</span>
+            <span id="history-range">Loading…</span>
             <div class="pager">
-              <button id="history-prev" type="button">上一页</button>
-              <button id="history-next" type="button">下一页</button>
+              <button id="history-prev" type="button">Previous</button>
+              <button id="history-next" type="button">Next</button>
             </div>
           </div>
         </div>
@@ -148,18 +151,18 @@
       <div class="drawer-header">
         <div>
           <p class="eyebrow">AIRCRAFT RECORD</p>
-          <h2 id="drawer-title">飞机详情</h2>
+          <h2 id="drawer-title">Aircraft details</h2>
         </div>
-        <button id="drawer-close" class="icon-button" type="button" aria-label="关闭详情">×</button>
+        <button id="drawer-close" class="icon-button" type="button" aria-label="Close details">×</button>
       </div>
       <div id="drawer-content" class="drawer-content"></div>
     </aside>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <div id="kiosk-stats" class="kiosk-stats" aria-live="polite"></div>
-    <button id="kiosk-close" class="kiosk-close" type="button" aria-label="关闭 SkyTrace 地图">×</button>
+    <button id="kiosk-close" class="kiosk-close" type="button" aria-label="Close SkyTrace map">×</button>
 
     <script src="/assets/vendor/leaflet/leaflet.js?v=1.9.4"></script>
-    <script src="/assets/app.js?v=1.3.42" defer></script>
+    <script src="/assets/app.js?v=1.3.43" defer></script>
   </body>
 </html>

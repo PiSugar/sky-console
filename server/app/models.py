@@ -92,7 +92,7 @@ class IngestBatch(BaseModel):
 class HardwareControlEvent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    action: Literal["pan", "zoom", "select_nearest"]
+    action: Literal["pan", "zoom", "select_nearest", "toggle_follow"]
     x: float = Field(default=0.0, ge=-1.0, le=1.0)
     y: float = Field(default=0.0, ge=-1.0, le=1.0)
     delta: int = Field(default=0, ge=-8, le=8)

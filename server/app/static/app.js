@@ -1,7 +1,7 @@
 {
 const state = {
   map: null,
-  mapSource: "domestic",
+  mapSource: "english",
   mapTileLayer: null,
   aircraftMarkers: new Map(),
   receiverMarkers: new Map(),
@@ -28,6 +28,7 @@ const state = {
   selectedIcao: null,
   detailAircraft: null,
   quickAircraftIcao: null,
+  followAircraftIcao: null,
   quickEnrichments: new Map(),
   quickEnrichmentRefreshTimer: null,
   messageCursor: null,
@@ -57,13 +58,14 @@ const elements = {
   drawerContent: document.querySelector("#drawer-content"),
   toast: document.querySelector("#toast"),
   mapQuickCard: document.querySelector("#map-quick-card"),
+  mapFollowStatus: document.querySelector("#map-follow-status"),
   kioskStats: document.querySelector("#kiosk-stats"),
   kioskClose: document.querySelector("#kiosk-close"),
 };
 
-const numberFormatter = new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 1 });
-const fullNumberFormatter = new Intl.NumberFormat("zh-CN");
-const timeFormatter = new Intl.DateTimeFormat("zh-CN", {
+const numberFormatter = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
+const fullNumberFormatter = new Intl.NumberFormat("en-US");
+const timeFormatter = new Intl.DateTimeFormat("en-US", {
   month: "2-digit",
   day: "2-digit",
   hour: "2-digit",
@@ -71,8 +73,6 @@ const timeFormatter = new Intl.DateTimeFormat("zh-CN", {
   second: "2-digit",
   hour12: false,
 });
-const browserLanguage = (navigator.languages?.[0] || navigator.language || "en").toLowerCase();
-
 const AIRLINE_NAMES_ZH = Object.freeze({
   AAL: "美国航空",
   ACA: "加拿大航空",
@@ -227,17 +227,17 @@ function fmtTime(ms) {
 }
 
 function ago(ms, now = Date.now()) {
-  if (!ms) return "未知";
+  if (!ms) return "Unknown";
   const seconds = Math.max(0, Math.round((now - ms) / 1000));
-  if (seconds < 60) return `${seconds} 秒前`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前`;
-  return `${Math.floor(seconds / 86400)} 天前`;
+  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
 }
 
 function altitude(value) {
   if (value === null || value === undefined) return "—";
-  if (Number(value) === 0) return "地面";
+  if (Number(value) === 0) return "Ground";
   return `${fullNumberFormatter.format(value)} ft`;
 }
 
@@ -275,24 +275,21 @@ function flightLabel(aircraft) {
 
 function aircraftModelLabel(aircraft) {
   const makerAndModel = [aircraft.aircraft_manufacturer, aircraft.aircraft_model].filter(Boolean).join(" ");
-  return makerAndModel || aircraft.aircraft_type || "机型资料查询中";
+  return makerAndModel || aircraft.aircraft_type || "Aircraft data loading";
 }
 
 function aircraftDescription(aircraft) {
   const model = aircraftModelLabel(aircraft);
-  return model === "机型资料查询中" ? (aircraft.registration || "机型待补全") : model;
+  return model === "Aircraft data loading" ? (aircraft.registration || "Aircraft type pending") : model;
 }
 
 function localizedAirlineName(aircraft) {
-  const sourceName = aircraft.airline_name || null;
-  if (!browserLanguage.startsWith("zh")) return sourceName;
-  const icao = String(aircraft.airline_icao || "").trim().toUpperCase();
-  return AIRLINE_NAMES_ZH[icao] || sourceName;
+  return aircraft.airline_name || null;
 }
 
 function airlineLabel(aircraft) {
   const name = localizedAirlineName(aircraft);
-  if (!name) return "航司待补全";
+  if (!name) return "Airline pending";
   const code = [aircraft.airline_iata, aircraft.airline_icao].filter(Boolean).join(" / ");
   return code ? `${name} (${code})` : name;
 }
@@ -302,8 +299,7 @@ function airportCode(aircraft, prefix) {
 }
 
 function localizedAirportData(aircraft, prefix) {
-  if (!browserLanguage.startsWith("zh")) return null;
-  return AIRPORTS_ZH[airportCode(aircraft, prefix).toUpperCase()] || null;
+  return null;
 }
 
 function localizedAirportDetail(aircraft, prefix) {
@@ -360,15 +356,15 @@ function renderAircraftQuickCard() {
   const aircraft = { ...liveAircraft, ...(state.quickEnrichments.get(state.quickAircraftIcao) || {}) };
   const airlineName = localizedAirlineName(aircraft) || aircraft.registered_owner;
   const airlineLoading = !airlineName && enrichmentPending(aircraft);
-  const airlineText = airlineName || (airlineLoading ? "航司资料查询中" : "航司资料暂无记录");
+  const airlineText = airlineName || (airlineLoading ? "Loading airline data" : "No airline data");
   const model = aircraftModelLabel(aircraft);
   const route = routeShort(aircraft);
-  const registration = aircraft.registration || aircraft.metadata_registration || "注册号待补全";
+  const registration = aircraft.registration || aircraft.metadata_registration || "Registration pending";
   const statusItems = [
-    `高度 ${altitude(aircraft.altitude_baro)}`,
-    `速度 ${speed(aircraft.ground_speed)}`,
-    `航向 ${heading(aircraft.track)}`,
-    aircraft.squawk ? `应答 ${aircraft.squawk}` : null,
+    `ALT ${altitude(aircraft.altitude_baro)}`,
+    `SPD ${speed(aircraft.ground_speed)}`,
+    `HDG ${heading(aircraft.track)}`,
+    aircraft.squawk ? `SQUAWK ${aircraft.squawk}` : null,
   ].filter(Boolean);
   elements.mapQuickCard.innerHTML = `
     <div class="quick-card-heading">
@@ -376,7 +372,7 @@ function renderAircraftQuickCard() {
         <strong>${escapeHtml(flightLabel(aircraft))}</strong>
         <span class="mono">${escapeHtml(aircraft.icao)}</span>
       </div>
-      <button type="button" data-quick-close aria-label="关闭快速信息">×</button>
+      <button type="button" data-quick-close aria-label="Close quick information">×</button>
     </div>
     <div class="quick-card-identification">
       <b class="${airlineLoading ? "is-loading" : ""}">${airlineLoading ? "<i></i>" : ""}${escapeHtml(airlineText)}</b>
@@ -385,7 +381,7 @@ function renderAircraftQuickCard() {
     ${route ? `<div class="quick-card-route">${escapeHtml(route)}</div>` : ""}
     <div class="quick-card-footer">
       ${statusItems.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}
-      <button type="button" data-quick-detail>详细资料</button>
+      <button type="button" data-quick-detail>Details</button>
     </div>`;
   elements.mapQuickCard.hidden = false;
 }
@@ -436,6 +432,43 @@ function showAircraftQuickCard(icao) {
   refreshQuickCardEnrichment(icao);
 }
 
+function updateAircraftFollowStatus() {
+  if (!elements.mapFollowStatus) return;
+  const aircraft = state.live.find((item) => item.icao === state.followAircraftIcao);
+  const label = aircraft ? flightLabel(aircraft) : state.followAircraftIcao;
+  elements.mapFollowStatus.hidden = !state.followAircraftIcao;
+  const labelElement = elements.mapFollowStatus.querySelector("strong");
+  if (labelElement) labelElement.textContent = label || "";
+}
+
+function releaseAircraftFollow(notify = false) {
+  if (!state.followAircraftIcao) return;
+  state.followAircraftIcao = null;
+  updateAircraftFollowStatus();
+  if (notify) showToast("Aircraft follow released");
+}
+
+function toggleAircraftFollow() {
+  const icao = state.quickAircraftIcao;
+  if (state.followAircraftIcao) {
+    releaseAircraftFollow(true);
+    return;
+  }
+  if (!icao || !state.aircraftMarkers.has(icao)) {
+    showToast("Select an aircraft before enabling follow mode");
+    return;
+  }
+  state.followAircraftIcao = icao;
+  updateAircraftFollowStatus();
+  const marker = state.aircraftMarkers.get(icao);
+  state.map.flyTo(marker.getLatLng(), state.map.getZoom(), {
+    animate: true,
+    duration: 0.65,
+    easeLinearity: 0.25,
+  });
+  showToast(`Following ${flightLabel(state.live.find((item) => item.icao === icao) || { icao })}`);
+}
+
 function enrichmentPending(aircraft) {
   const metadataPending = aircraft.metadata_status === null || aircraft.metadata_status === undefined;
   const routePending = Boolean(aircraft.callsign) && (aircraft.route_status === null || aircraft.route_status === undefined);
@@ -452,7 +485,7 @@ function enrichmentUrl(icao, callsign = null) {
 
 async function api(path) {
   const response = await fetch(path, { headers: { Accept: "application/json" } });
-  if (!response.ok) throw new Error(`请求失败 (${response.status})`);
+  if (!response.ok) throw new Error(`Request failed (${response.status})`);
   return response.json();
 }
 
@@ -531,8 +564,8 @@ function gcj02ToWgs84(latitude, longitude) {
   return [wgsLatitude, wgsLongitude];
 }
 
-function mapDisplayPosition(latitude, longitude, source = state.mapSource) {
-  return source === "domestic" ? wgs84ToGcj02(latitude, longitude) : [latitude, longitude];
+function mapDisplayPosition(latitude, longitude) {
+  return [latitude, longitude];
 }
 
 function createMapTileLayer(source) {
@@ -550,30 +583,27 @@ function createMapTileLayer(source) {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a>',
     });
   }
-  return L.tileLayer("https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}", {
+  return L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
     ...commonOptions,
-    subdomains: "1234",
-    attribution: '&copy; <a href="https://www.amap.com/" target="_blank" rel="noopener noreferrer">高德地图</a>',
+    attribution: 'Tiles &copy; <a href="https://www.esri.com/" target="_blank" rel="noopener noreferrer">Esri</a>',
   });
 }
 
 function updateMapSourceButton() {
   const button = document.querySelector("#map-source-toggle");
   const international = state.mapSource === "international";
-  button.textContent = international ? "底图：OSM" : "底图：高德";
+  button.textContent = international ? "Map: OSM" : "Map: Esri";
   button.setAttribute("aria-pressed", String(international));
-  button.title = international ? "切换到国内高德地图" : "切换到国际 OpenStreetMap";
+  button.title = international ? "Switch to English Esri map" : "Switch to OpenStreetMap";
 }
 
 function switchMapSource() {
   if (!state.map) return;
   const previousSource = state.mapSource;
   const currentCenter = state.map.getCenter();
-  const centerWgs84 = previousSource === "domestic"
-    ? gcj02ToWgs84(currentCenter.lat, currentCenter.lng)
-    : [currentCenter.lat, currentCenter.lng];
+  const centerWgs84 = [currentCenter.lat, currentCenter.lng];
   const zoom = state.map.getZoom();
-  state.mapSource = previousSource === "domestic" ? "international" : "domestic";
+  state.mapSource = previousSource === "english" ? "international" : "english";
   state.mapTileLayer?.remove();
   state.mapTileLayer = createMapTileLayer(state.mapSource).addTo(state.map);
   if (state.detailMap) {
@@ -596,8 +626,8 @@ function switchMapSource() {
     // Map switching still works when browser storage is disabled.
   }
   showToast(state.mapSource === "international"
-    ? "已切换到国际 OpenStreetMap（部分国内网络可能较慢）"
-    : "已切换到国内高德地图");
+    ? "Switched to OpenStreetMap"
+    : "Switched to English Esri map");
 }
 
 function initMap() {
@@ -608,11 +638,10 @@ function initMap() {
   }
   const mapElement = document.querySelector("#map");
   try {
-    if (window.localStorage.getItem("skytrace-map-source") === "international") {
-      state.mapSource = "international";
-    }
+    const savedSource = window.localStorage.getItem("skytrace-map-source");
+    if (["english", "international"].includes(savedSource)) state.mapSource = savedSource;
   } catch (_error) {
-    // Use the domestic default when browser storage is disabled.
+    // Use the English Esri default when browser storage is disabled.
   }
   state.map = L.map(mapElement, {
     zoomControl: true,
@@ -643,6 +672,7 @@ function initMap() {
   // Re-enable input handlers before Leaflet handles the same event. This also
   // protects the map from browser lifecycle edge cases on mobile.
   mapElement.addEventListener("pointerdown", () => {
+    releaseAircraftFollow(true);
     if (!state.map.dragging.enabled()) state.map.dragging.enable();
   }, { capture: true, passive: true });
   mapElement.addEventListener("wheel", () => {
@@ -945,7 +975,16 @@ function renderMap() {
     }
   });
 
-  if (!state.didInitialFit && bounds.length) {
+  if (state.followAircraftIcao) {
+    const followedMarker = state.aircraftMarkers.get(state.followAircraftIcao);
+    if (followedMarker) {
+      state.map.panTo(followedMarker.getLatLng(), { animate: false });
+      updateAircraftFollowStatus();
+      state.didInitialFit = true;
+    } else {
+      releaseAircraftFollow(true);
+    }
+  } else if (!state.didInitialFit && bounds.length) {
     state.map.fitBounds(bounds, { padding: [45, 45], maxZoom: 9, animate: false });
     state.didInitialFit = true;
   }
@@ -962,6 +1001,7 @@ function scheduleMapRender() {
 
 function fitMap() {
   if (!state.map) return;
+  releaseAircraftFollow();
   const points = [
     ...state.live.map((a) => finiteCoordinatePair(a.latitude, a.longitude)).filter(Boolean).map((position) => mapDisplayPosition(...position)),
     ...state.receivers.map((r) => finiteCoordinatePair(r.latitude, r.longitude)).filter(Boolean).map((position) => mapDisplayPosition(...position)),
@@ -979,7 +1019,7 @@ function renderLiveList(serverNow) {
     elements.liveList.innerHTML = `
       <div class="empty-state compact">
         <span class="radar-loader"></span>
-        <p>最近 90 秒没有收到飞机信号</p>
+        <p>No aircraft signals received in the last 90 seconds</p>
       </div>`;
     return;
   }
@@ -993,15 +1033,15 @@ function renderLiveList(serverNow) {
             <span class="mono">${escapeHtml(aircraft.icao)}</span>
           </span>
           <span class="contact-enrichment">
-            ${escapeHtml(localizedAirlineName(aircraft) || aircraft.registered_owner || "公开资料待补全")}
+            ${escapeHtml(localizedAirlineName(aircraft) || aircraft.registered_owner || "Public data pending")}
             <i>·</i>
-            ${escapeHtml(aircraft.aircraft_type || aircraft.aircraft_model || "机型未知")}
+            ${escapeHtml(aircraft.aircraft_type || aircraft.aircraft_model || "Aircraft type unknown")}
             ${routeShort(aircraft) ? `<i>·</i> ${escapeHtml(routeShort(aircraft))}` : ""}
           </span>
           <span class="contact-meta">
             <span>${escapeHtml(speed(aircraft.ground_speed))}</span>
-            <span>航向 ${escapeHtml(heading(aircraft.track))}</span>
-            <span>${aircraft.latitude === null ? "位置待解" : "位置已定位"}</span>
+            <span>HDG ${escapeHtml(heading(aircraft.track))}</span>
+            <span>${aircraft.latitude === null ? "Position pending" : "Position resolved"}</span>
           </span>
         </span>
         <span class="contact-aside">
@@ -1020,7 +1060,7 @@ function renderStats(data) {
   document.querySelector("#stat-messages").textContent = numberFormatter.format(data.messages_24h);
   document.querySelector("#stat-receivers").textContent = `${data.online_receivers}/${data.total_receivers}`;
   if (elements.kioskStats) {
-    elements.kioskStats.textContent = `当前 ${fullNumberFormatter.format(data.active_aircraft)} · 历史 ${fullNumberFormatter.format(data.total_aircraft)} · 报文 ${numberFormatter.format(data.messages_24h)} · 接收站 ${data.online_receivers}/${data.total_receivers}`;
+    elements.kioskStats.textContent = `LIVE ${fullNumberFormatter.format(data.active_aircraft)} · HISTORY ${fullNumberFormatter.format(data.total_aircraft)} · MSG ${numberFormatter.format(data.messages_24h)} · RX ${data.online_receivers}/${data.total_receivers}`;
   }
 }
 
@@ -1049,9 +1089,9 @@ function applyLiveSnapshot(message) {
     }
   }
   const online = data.receivers.some((receiver) => data.server_now_ms - receiver.last_seen_ms <= data.active_seconds * 1000);
-  setConnection(online, online ? "接收站在线 · 实时" : "接收站离线 · 实时");
-  elements.lastUpdate.textContent = `WebSocket 实时更新 ${fmtTime(data.server_now_ms)}`;
-  document.querySelector("#receiver-name").textContent = data.receivers[0]?.name || "等待树莓派";
+  setConnection(online, online ? "Receiver online · Live" : "Receiver offline · Live");
+  elements.lastUpdate.textContent = `WebSocket live update ${fmtTime(data.server_now_ms)}`;
+  document.querySelector("#receiver-name").textContent = data.receivers[0]?.name || "Waiting for Raspberry Pi";
 }
 
 function liveSocketUrl() {
@@ -1079,7 +1119,7 @@ function selectNearestVisibleAircraft() {
     }
   });
   if (!nearest || !nearestPosition) {
-    showToast("当前视野没有飞机");
+    showToast("No aircraft are visible in the current map view");
     return;
   }
   showAircraftQuickCard(nearest);
@@ -1094,6 +1134,7 @@ function selectNearestVisibleAircraft() {
 function handleHardwareControl(message) {
   if (document.hidden || !state.map || !document.querySelector("#view-live")?.classList.contains("is-active")) return;
   if (message.action === "pan") {
+    releaseAircraftFollow(true);
     const x = Math.max(-1, Math.min(1, Number(message.x) || 0));
     const y = Math.max(-1, Math.min(1, Number(message.y) || 0));
     state.map.panBy([x * 22, y * 22], { animate: false });
@@ -1102,6 +1143,8 @@ function handleHardwareControl(message) {
     if (delta) state.map.setZoom(state.map.getZoom() + delta, { animate: true });
   } else if (message.action === "select_nearest") {
     selectNearestVisibleAircraft();
+  } else if (message.action === "toggle_follow") {
+    toggleAircraftFollow();
   }
 }
 
@@ -1109,8 +1152,8 @@ function connectLiveSocket() {
   window.clearTimeout(state.socketRetryTimer);
   if (state.socketStopped || state.socket?.readyState === WebSocket.OPEN || state.socket?.readyState === WebSocket.CONNECTING) return;
 
-  setConnection(false, "正在连接实时数据");
-  elements.lastUpdate.textContent = "正在建立 WebSocket 连接…";
+  setConnection(false, "Connecting to live data");
+  elements.lastUpdate.textContent = "Opening WebSocket connection…";
   const socket = new WebSocket(liveSocketUrl());
   state.socket = socket;
 
@@ -1125,7 +1168,7 @@ function connectLiveSocket() {
       if (message.type === "snapshot") applyLiveSnapshot(message);
       else if (message.type === "hardware_control") handleHardwareControl(message);
     } catch (_error) {
-      showToast("收到无法识别的实时数据");
+      showToast("Received an unrecognized live message");
     }
   });
   socket.addEventListener("error", () => socket.close());
@@ -1133,10 +1176,10 @@ function connectLiveSocket() {
     if (socket !== state.socket) return;
     state.socket = null;
     if (state.socketStopped) return;
-    setConnection(false, "实时连接中断");
+    setConnection(false, "Live connection interrupted");
     const delay = Math.min(15000, 1000 * (2 ** state.socketRetryAttempt));
     state.socketRetryAttempt += 1;
-    elements.lastUpdate.textContent = `${Math.ceil(delay / 1000)} 秒后自动重连…`;
+    elements.lastUpdate.textContent = `Reconnecting in ${Math.ceil(delay / 1000)}s…`;
     state.socketRetryTimer = window.setTimeout(connectLiveSocket, delay);
   });
 }
@@ -1151,7 +1194,7 @@ function switchView(name) {
 }
 
 async function loadHistory() {
-  elements.historyBody.innerHTML = '<tr><td colspan="6">正在载入历史档案…</td></tr>';
+  elements.historyBody.innerHTML = '<tr><td colspan="6">Loading aircraft history…</td></tr>';
   try {
     const params = new URLSearchParams({
       search: state.search,
@@ -1161,7 +1204,7 @@ async function loadHistory() {
     const data = await api(`/api/v1/aircraft?${params}`);
     state.historyTotal = data.total;
     if (!data.items.length) {
-      elements.historyBody.innerHTML = '<tr><td colspan="6">没有匹配的飞机记录</td></tr>';
+      elements.historyBody.innerHTML = '<tr><td colspan="6">No matching aircraft records</td></tr>';
     } else {
       elements.historyBody.innerHTML = data.items
         .map(
@@ -1170,20 +1213,20 @@ async function loadHistory() {
             <td class="aircraft-cell">
               <strong>${escapeHtml(flightLabel(aircraft))}</strong>
               <small class="mono">${escapeHtml(aircraft.icao)}</small>
-              <span class="aircraft-secondary">${escapeHtml(localizedAirlineName(aircraft) || aircraft.registered_owner || "资料待补全")} · ${escapeHtml(aircraft.aircraft_type || aircraft.aircraft_model || "机型未知")}</span>
+              <span class="aircraft-secondary">${escapeHtml(localizedAirlineName(aircraft) || aircraft.registered_owner || "Data pending")} · ${escapeHtml(aircraft.aircraft_type || aircraft.aircraft_model || "Aircraft type unknown")}</span>
             </td>
-            <td data-label="最后信号">${escapeHtml(fmtTime(aircraft.last_seen_ms))}<br><small>${escapeHtml(ago(aircraft.last_seen_ms))}</small></td>
-            <td data-label="高度">${escapeHtml(altitude(aircraft.altitude_baro))}</td>
-            <td data-label="速度 / 航向">${escapeHtml(speed(aircraft.ground_speed))} / ${escapeHtml(heading(aircraft.track))}</td>
-            <td data-label="累计报文" class="mono">${fullNumberFormatter.format(aircraft.messages_received)}</td>
-            <td><button class="table-action" type="button" data-icao="${escapeHtml(aircraft.icao)}">详情</button></td>
+            <td data-label="Last signal">${escapeHtml(fmtTime(aircraft.last_seen_ms))}<br><small>${escapeHtml(ago(aircraft.last_seen_ms))}</small></td>
+            <td data-label="Altitude">${escapeHtml(altitude(aircraft.altitude_baro))}</td>
+            <td data-label="Speed / heading">${escapeHtml(speed(aircraft.ground_speed))} / ${escapeHtml(heading(aircraft.track))}</td>
+            <td data-label="Messages" class="mono">${fullNumberFormatter.format(aircraft.messages_received)}</td>
+            <td><button class="table-action" type="button" data-icao="${escapeHtml(aircraft.icao)}">Details</button></td>
           </tr>`,
         )
         .join("");
     }
     const from = data.total ? (data.page - 1) * data.page_size + 1 : 0;
     const to = Math.min(data.total, data.page * data.page_size);
-    elements.historyRange.textContent = `显示 ${from}–${to}，共 ${fullNumberFormatter.format(data.total)} 架`;
+    elements.historyRange.textContent = `Showing ${from}–${to} of ${fullNumberFormatter.format(data.total)}`;
     elements.historyPrev.disabled = data.page <= 1;
     elements.historyNext.disabled = to >= data.total;
   } catch (error) {
@@ -1200,17 +1243,17 @@ function enrichmentMarkup(aircraft) {
   const aircraftLoading = !hasAircraftData && (aircraft.metadata_status === null || aircraft.metadata_status === undefined);
   const routeLoading = Boolean(aircraft.callsign) && !hasRoute && (aircraft.route_status === null || aircraft.route_status === undefined);
   const aircraftEmptyText = aircraft.metadata_status === "not_found"
-    ? "公开资料库暂未收录这架飞机"
+    ? "This aircraft is not available in the public database"
     : aircraft.metadata_status === "error"
-      ? "资料源暂时不可用，服务端会自动重试"
-      : "正在后台查询飞机注册与机型资料";
+      ? "The data source is temporarily unavailable; the server will retry"
+      : "Looking up aircraft registration and type data";
   const routeEmptyText = !aircraft.callsign
-    ? "报文中还没有稳定的航班呼号，无法匹配航线"
+    ? "No stable callsign is available for route matching"
     : aircraft.route_status === "not_found"
-      ? "公开资料库暂未收录这个呼号的航线"
+      ? "No route is available for this callsign in the public database"
       : aircraft.route_status === "error"
-        ? "航线资料源暂时不可用，服务端会自动重试"
-        : "正在后台查询航司与计划航线";
+        ? "The route data source is temporarily unavailable; the server will retry"
+        : "Looking up airline and scheduled route data";
   const originDetail = localizedAirportDetail(aircraft, "origin");
   const destinationDetail = localizedAirportDetail(aircraft, "destination");
   const airlineName = localizedAirlineName(aircraft);
@@ -1219,8 +1262,8 @@ function enrichmentMarkup(aircraft) {
   return `
     <section id="aircraft-enrichment" class="detail-section enrichment-section">
       <div class="detail-section-heading">
-        <h4>航班与飞机资料</h4>
-        <a class="source-link" href="https://www.adsbdb.com/" target="_blank" rel="noopener noreferrer">资料源 ADSBDB ↗</a>
+        <h4>Flight and aircraft data</h4>
+        <a class="source-link" href="https://www.adsbdb.com/" target="_blank" rel="noopener noreferrer">Source: ADSBDB ↗</a>
       </div>
       <div class="enrichment-grid">
         <article class="enrichment-card">
@@ -1228,10 +1271,10 @@ function enrichmentMarkup(aircraft) {
           ${hasAircraftData ? `
             <strong>${escapeHtml(aircraftDescription(aircraft))}</strong>
             <dl class="info-rows">
-              <div><dt>注册号</dt><dd class="mono">${escapeHtml(aircraft.registration || "—")}</dd></div>
-              <div><dt>ICAO 机型码</dt><dd class="mono">${escapeHtml(aircraft.metadata_type_code || aircraft.aircraft_type || "—")}</dd></div>
-              <div><dt>注册所有人</dt><dd>${escapeHtml(aircraft.registered_owner || "—")}</dd></div>
-              <div><dt>注册国家</dt><dd>${escapeHtml(aircraft.registered_owner_country || "—")}</dd></div>
+              <div><dt>Registration</dt><dd class="mono">${escapeHtml(aircraft.registration || "—")}</dd></div>
+              <div><dt>ICAO type code</dt><dd class="mono">${escapeHtml(aircraft.metadata_type_code || aircraft.aircraft_type || "—")}</dd></div>
+              <div><dt>Registered owner</dt><dd>${escapeHtml(aircraft.registered_owner || "—")}</dd></div>
+              <div><dt>Registration country</dt><dd>${escapeHtml(aircraft.registered_owner_country || "—")}</dd></div>
             </dl>` : aircraftLoading ? `<div class="enrichment-loading"><span></span><p>${escapeHtml(aircraftEmptyText)}</p></div>` : `<p class="enrichment-empty">${escapeHtml(aircraftEmptyText)}</p>`}
         </article>
         <article class="enrichment-card route-card">
@@ -1239,24 +1282,24 @@ function enrichmentMarkup(aircraft) {
           ${airlineName ? `<strong>${escapeHtml(airlineLabel(aircraft))}</strong>` : `<strong>${escapeHtml(flightLabel(aircraft))}</strong>`}
           ${(numbers.iata || numbers.icao) ? `
             <dl class="info-rows flight-number-rows">
-              <div><dt>旅客航班号</dt><dd class="mono">${escapeHtml(numbers.iata || "—")}</dd></div>
+              <div><dt>Passenger flight number</dt><dd class="mono">${escapeHtml(numbers.iata || "—")}</dd></div>
               <div><dt>ICAO / ADS-B</dt><dd class="mono">${escapeHtml(numbers.icao || "—")}</dd></div>
             </dl>` : ""}
           ${hasRoute ? `
-            <div class="route-line" aria-label="公开资料中的计划航线">
+            <div class="route-line" aria-label="Scheduled route from public data">
               <div class="route-airport">
                 <b class="mono">${escapeHtml(airportCode(aircraft, "origin"))}</b>
-                <span>${escapeHtml(originDetail || "起飞机场")}</span>
+                <span>${escapeHtml(originDetail || "Origin airport")}</span>
               </div>
               <span class="route-arrow" aria-hidden="true">→</span>
               <div class="route-airport destination">
                 <b class="mono">${escapeHtml(airportCode(aircraft, "destination"))}</b>
-                <span>${escapeHtml(destinationDetail || "目的机场")}</span>
+                <span>${escapeHtml(destinationDetail || "Destination airport")}</span>
               </div>
             </div>` : routeLoading ? `<div class="enrichment-loading"><span></span><p>${escapeHtml(routeEmptyText)}</p></div>` : `<p class="enrichment-empty">${escapeHtml(routeEmptyText)}</p>`}
         </article>
       </div>
-      <p class="data-caveat">航司、机型与航线按 ICAO 地址和呼号匹配公开资料。航线是计划/常见航线，不代表本次飞行的实时放行计划，请以航空公司或机场信息为准。</p>
+      <p class="data-caveat">Airline, aircraft type, and route data are matched from public records using the ICAO address and callsign. Routes are scheduled or common routes and may not represent the active flight plan.</p>
     </section>`;
 }
 
@@ -1266,8 +1309,8 @@ function coordinateVerificationMarkup(aircraft) {
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
     return `
       <section class="detail-section coordinate-section">
-        <div class="detail-section-heading"><h4>坐标校验</h4><span class="mono">WGS-84 → GCJ-02</span></div>
-        <p class="coordinate-empty">这架飞机暂时没有可用的 ADS-B 经纬度。</p>
+        <div class="detail-section-heading"><h4>Coordinate verification</h4><span class="mono">WGS-84 → GCJ-02</span></div>
+        <p class="coordinate-empty">No ADS-B coordinates are currently available for this aircraft.</p>
       </section>`;
   }
 
@@ -1275,20 +1318,20 @@ function coordinateVerificationMarkup(aircraft) {
   const offsetMeters = L.latLng(latitude, longitude).distanceTo(L.latLng(displayPosition));
   return `
     <section class="detail-section coordinate-section">
-      <div class="detail-section-heading"><h4>坐标校验</h4><span class="mono">WGS-84 → GCJ-02</span></div>
+      <div class="detail-section-heading"><h4>Coordinate verification</h4><span class="mono">WGS-84 → GCJ-02</span></div>
       <div class="coordinate-grid">
         <article>
-          <span>ADS-B 原始坐标</span>
+          <span>Original ADS-B coordinates</span>
           <strong class="mono">${latitude.toFixed(6)}, ${longitude.toFixed(6)}</strong>
-          <small>数据库与 API 保存值 · 位置时间 ${escapeHtml(fmtTime(aircraft.position_at_ms || aircraft.last_seen_ms))}</small>
+          <small>Stored database and API value · Position time ${escapeHtml(fmtTime(aircraft.position_at_ms || aircraft.last_seen_ms))}</small>
         </article>
         <article>
-          <span>高德地图绘制坐标</span>
+          <span>GCJ-02 comparison coordinates</span>
           <strong class="mono">${displayPosition[0].toFixed(6)}, ${displayPosition[1].toFixed(6)}</strong>
-          <small>GCJ-02 显示偏移约 ${fullNumberFormatter.format(Math.round(offsetMeters))} 米</small>
+          <small>GCJ-02 display offset approximately ${fullNumberFormatter.format(Math.round(offsetMeters))} m</small>
         </article>
       </div>
-      <p class="coordinate-note">实时动画以原始 ADS-B 坐标为锚点，根据地速、航向和报文时间短时外推；以上原始坐标不会被模拟位置覆盖。</p>
+      <p class="coordinate-note">Live animation uses the original ADS-B coordinates as its anchor and briefly projects motion from ground speed, heading, and message time. Simulated positions never overwrite the original coordinates above.</p>
     </section>`;
 }
 
@@ -1354,7 +1397,7 @@ function updateDetailMap(aircraft, follow = false) {
   if (!window.L || !mapElement) return;
   const position = finiteCoordinatePair(aircraft.latitude, aircraft.longitude);
   if (!position) {
-    if (statusElement) statusElement.textContent = "暂无可用坐标";
+    if (statusElement) statusElement.textContent = "No coordinates available";
     return;
   }
 
@@ -1398,7 +1441,7 @@ function updateDetailMap(aircraft, follow = false) {
   }
 
   if (statusElement) {
-    statusElement.textContent = `${altitude(aircraft.altitude_baro)} · ${speed(aircraft.ground_speed)} · 航向 ${heading(aircraft.track)}`;
+    statusElement.textContent = `${altitude(aircraft.altitude_baro)} · ${speed(aircraft.ground_speed)} · HDG ${heading(aircraft.track)}`;
   }
   updateDetailRoute(aircraft);
 }
@@ -1407,32 +1450,32 @@ function detailMarkup(aircraft, positions) {
   return `
     <div class="detail-identity">
       <div><h3 id="detail-flight-label">${escapeHtml(flightLabel(aircraft))}</h3><p class="mono">${escapeHtml(aircraft.icao)}</p></div>
-      <div class="last-seen">最后信号<br><span id="detail-last-seen">${escapeHtml(fmtTime(aircraft.last_seen_ms))}</span></div>
+      <div class="last-seen">Last signal<br><span id="detail-last-seen">${escapeHtml(fmtTime(aircraft.last_seen_ms))}</span></div>
     </div>
     <div class="detail-metrics">
-      <div class="detail-metric"><span>气压高度</span><strong id="detail-altitude">${escapeHtml(altitude(aircraft.altitude_baro))}</strong></div>
-      <div class="detail-metric"><span>地速</span><strong id="detail-speed">${escapeHtml(speed(aircraft.ground_speed))}</strong></div>
-      <div class="detail-metric"><span>航向</span><strong id="detail-heading">${escapeHtml(heading(aircraft.track))}</strong></div>
+      <div class="detail-metric"><span>Barometric altitude</span><strong id="detail-altitude">${escapeHtml(altitude(aircraft.altitude_baro))}</strong></div>
+      <div class="detail-metric"><span>Ground speed</span><strong id="detail-speed">${escapeHtml(speed(aircraft.ground_speed))}</strong></div>
+      <div class="detail-metric"><span>Heading</span><strong id="detail-heading">${escapeHtml(heading(aircraft.track))}</strong></div>
     </div>
-    <section class="detail-mini-map-section" aria-label="当前飞机位置">
+    <section class="detail-mini-map-section" aria-label="Current aircraft position">
       <div id="detail-mini-map" class="detail-mini-map"></div>
       <div class="detail-mini-map-label">
         <strong>${escapeHtml(flightLabel(aircraft))}</strong>
-        <span id="detail-mini-map-status">等待实时位置</span>
+        <span id="detail-mini-map-status">Waiting for live position</span>
       </div>
     </section>
     ${coordinateVerificationMarkup(aircraft)}
     ${enrichmentMarkup(aircraft)}
     <section class="detail-section">
       <div class="detail-section-heading">
-        <h4>实时模式</h4>
+        <h4>Live mode</h4>
         <span class="mono">LIVE ONLY</span>
       </div>
       <div class="track-summary">
-        <span>状态：<strong>内存实时</strong></span>
-        <span>航迹：<strong>${positions.length ? fullNumberFormatter.format(positions.length) : "不保存"}</strong></span>
-        <span>原始报文：<strong>不保存</strong></span>
-        <span>延迟目标：<strong>约 1 秒</strong></span>
+        <span>Status: <strong>Live in memory</strong></span>
+        <span>Track: <strong>${positions.length ? fullNumberFormatter.format(positions.length) : "Not stored"}</strong></span>
+        <span>Raw messages: <strong>Not stored</strong></span>
+        <span>Latency target: <strong>Approximately 1 second</strong></span>
       </div>
     </section>`;
 }
@@ -1456,27 +1499,27 @@ function renderMessages(items, append = false) {
   if (!list) return;
   const html = items.length
     ? items.map((message) => {
-      const decoded = message.decoded || { summary: "暂无解析", fields: [], notes: [] };
+      const decoded = message.decoded || { summary: "No decoding available", fields: [], notes: [] };
       const fields = Array.isArray(decoded.fields) ? decoded.fields : [];
       const notes = Array.isArray(decoded.notes) ? decoded.notes : [];
       const integrity = decoded.integrity === true
-        ? '<span class="decode-badge is-ok">CRC 通过</span>'
+        ? '<span class="decode-badge is-ok">CRC valid</span>'
         : decoded.integrity === false
-          ? '<span class="decode-badge is-warning">CRC 异常</span>'
-          : '<span class="decode-badge">校验含地址叠加</span>';
+          ? '<span class="decode-badge is-warning">CRC invalid</span>'
+          : '<span class="decode-badge">Address-overlay parity</span>';
       const fieldRows = fields.map((field) => `
         <tr>
-          <td data-label="位 / 原始位" class="mono decoded-bits"><b>${escapeHtml(field.bits)}</b><code>${escapeHtml(field.raw)}</code></td>
-          <td data-label="字段">${escapeHtml(field.name)}</td>
-          <td data-label="解析值" class="mono decoded-value">${escapeHtml(field.value)}</td>
-          <td data-label="含义">${escapeHtml(field.meaning)}</td>
+          <td data-label="Bits / raw bits" class="mono decoded-bits"><b>${escapeHtml(field.bits)}</b><code>${escapeHtml(field.raw)}</code></td>
+          <td data-label="Field">${escapeHtml(field.name)}</td>
+          <td data-label="Decoded value" class="mono decoded-value">${escapeHtml(field.value)}</td>
+          <td data-label="Meaning">${escapeHtml(field.meaning)}</td>
         </tr>`).join("");
       return `
         <details class="message-row">
           <summary class="message-summary">
             <span class="message-summary-main">
               <time>${escapeHtml(fmtTime(message.received_at_ms))}</time>
-              <strong>${escapeHtml(decoded.summary || "Mode S 报文")}</strong>
+              <strong>${escapeHtml(decoded.summary || "Mode S message")}</strong>
             </span>
             <span class="message-tags">
               ${integrity}
@@ -1485,15 +1528,15 @@ function renderMessages(items, append = false) {
           </summary>
           <div class="message-decode">
             <div class="message-meta">
-              <span>接收站 ${escapeHtml(message.receiver_id)}</span>
-              <span>${message.signal === null || message.signal === undefined ? "信号强度未知" : `信号 ${escapeHtml(message.signal)} dBFS`}</span>
+              <span>Receiver ${escapeHtml(message.receiver_id)}</span>
+              <span>${message.signal === null || message.signal === undefined ? "Signal strength unknown" : `Signal ${escapeHtml(message.signal)} dBFS`}</span>
             </div>
-            <div class="message-raw" title="原始十六进制报文">${escapeHtml(message.raw.match(/.{1,2}/g)?.join(" ") || message.raw)}</div>
-            ${decoded.binary ? `<div class="message-binary"><span>二进制（每组 8 位）</span><code>${escapeHtml(decoded.binary)}</code></div>` : ""}
+            <div class="message-raw" title="Raw hexadecimal message">${escapeHtml(message.raw.match(/.{1,2}/g)?.join(" ") || message.raw)}</div>
+            ${decoded.binary ? `<div class="message-binary"><span>Binary (8 bits per group)</span><code>${escapeHtml(decoded.binary)}</code></div>` : ""}
             ${fieldRows ? `
               <div class="decoded-table-wrap">
                 <table class="decoded-table">
-                  <thead><tr><th>位 / 原始位</th><th>字段</th><th>解析值</th><th>含义</th></tr></thead>
+                  <thead><tr><th>Bits / raw bits</th><th>Field</th><th>Decoded value</th><th>Meaning</th></tr></thead>
                   <tbody>${fieldRows}</tbody>
                 </table>
               </div>` : ""}
@@ -1501,7 +1544,7 @@ function renderMessages(items, append = false) {
           </div>
         </details>`;
     }).join("")
-    : '<div class="message-row">该飞机暂时没有存储的原始报文</div>';
+    : '<div class="message-row">No raw messages are stored for this aircraft</div>';
   if (append) list.insertAdjacentHTML("beforeend", html);
   else list.innerHTML = html;
 }
@@ -1576,9 +1619,9 @@ async function openAircraft(icao, hours = state.detailHours) {
   elements.drawerBackdrop.hidden = false;
   elements.drawer.classList.add("is-open");
   elements.drawer.setAttribute("aria-hidden", "false");
-  elements.drawerTitle.textContent = `飞机 ${icao}`;
+  elements.drawerTitle.textContent = `Aircraft ${icao}`;
   destroyDetailMap();
-  elements.drawerContent.innerHTML = '<div class="empty-state"><span class="radar-loader"></span><p>正在读取飞机档案</p></div>';
+  elements.drawerContent.innerHTML = '<div class="empty-state"><span class="radar-loader"></span><p>Loading aircraft record</p></div>';
   try {
     const data = await api(`/api/v1/aircraft/${icao}?hours=${hours}`);
     if (state.selectedIcao !== icao) return;

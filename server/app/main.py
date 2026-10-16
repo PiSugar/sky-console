@@ -100,7 +100,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="SkyTrace ADS-B",
-    version="1.3.7",
+    version="1.4.0",
     docs_url=None,
     redoc_url=None,
     lifespan=lifespan,
@@ -405,9 +405,9 @@ def aircraft_messages(
             message["decoded"] = decode_mode_s(message["raw"])
         except ValueError:
             message["decoded"] = {
-                "summary": "报文格式无法解析",
+                "summary": "Message format could not be decoded",
                 "fields": [],
-                "notes": ["数据库中的原始值不是有效的 56 位或 112 位 Mode S 报文。"],
+                "notes": ["The stored raw value is not a valid 56-bit or 112-bit Mode S message."],
             }
     return result
 
