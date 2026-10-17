@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import array
 import hashlib
+import math
+import os
 import re
+import struct
 import subprocess
+import sys
 import tempfile
 import threading
 import time
+import wave
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -15,6 +21,9 @@ _session_lock = threading.Lock()
 _current_session: "RadioSession | None" = None
 _audio_lock = threading.Lock()
 _audio_playbacks = 0
+AUDIO_METER_PATH = os.getenv("SKYTRACE_RADIO_METER_PATH", "/tmp/skytrace-radio-meter")
+AUDIO_METER = struct.Struct("<BfQ")
+AUDIO_ENVELOPE_SECONDS = 0.03
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,6 +189,44 @@ def _set_audio_playing(active: bool) -> None:
         _audio_playbacks = max(0, _audio_playbacks + (1 if active else -1))
 
 
+def _publish_audio_meter(active: bool, level: float) -> None:
+    payload = AUDIO_METER.pack(active, max(0.0, min(1.0, level)), time.time_ns())
+    try:
+        descriptor = os.open(AUDIO_METER_PATH, os.O_WRONLY | os.O_CREAT, 0o644)
+        try:
+            os.pwrite(descriptor, payload, 0)
+        finally:
+            os.close(descriptor)
+    except OSError:
+        # Metering must never prevent the pilot audio itself from playing.
+        pass
+
+
+def _wav_envelope(path: str, window_seconds: float = AUDIO_ENVELOPE_SECONDS) -> list[float]:
+    """Calculate a normalized RMS envelope for 16-bit PCM playback."""
+
+    with wave.open(path, "rb") as source:
+        if source.getsampwidth() != 2:
+            return [1.0]
+        channels = source.getnchannels()
+        sample_rate = source.getframerate()
+        samples = array.array("h")
+        samples.frombytes(source.readframes(source.getnframes()))
+    if sys.byteorder != "little":
+        samples.byteswap()
+    window_samples = max(channels, int(sample_rate * channels * window_seconds))
+    rms_values = []
+    for start in range(0, len(samples), window_samples):
+        window = samples[start : start + window_samples]
+        if not window:
+            continue
+        rms_values.append(math.sqrt(sum(sample * sample for sample in window) / len(window)))
+    peak = max(rms_values, default=0.0)
+    if peak <= 0:
+        return [0.0] * max(1, len(rms_values))
+    return [round(math.sqrt(value / peak), 4) for value in rms_values]
+
+
 def _route_label(aircraft: dict[str, Any], prefix: str) -> str:
     code = aircraft.get(f"{prefix}_iata") or aircraft.get(f"{prefix}_icao")
     city = aircraft.get(f"{prefix}_city")
@@ -278,19 +325,28 @@ def _run_cancelable(
         text=True,
     )
     session.set_process(process)
+    try:
+        envelope = _wav_envelope(args[-1]) if audio_playback else []
+    except (OSError, wave.Error):
+        envelope = [1.0] if audio_playback else []
     if audio_playback:
         _set_audio_playing(True)
+        _publish_audio_meter(True, envelope[0] if envelope else 0.0)
     started_at = time.monotonic()
     try:
         if input_text is not None and process.stdin is not None:
             process.stdin.write(input_text)
             process.stdin.close()
         while process.poll() is None:
+            elapsed = time.monotonic() - started_at
+            if audio_playback:
+                index = min(len(envelope) - 1, int(elapsed / AUDIO_ENVELOPE_SECONDS))
+                _publish_audio_meter(True, envelope[index] if envelope else 0.0)
             if session.cancelled.is_set():
                 raise subprocess.SubprocessError("radio session cancelled")
-            if time.monotonic() - started_at > timeout:
+            if elapsed > timeout:
                 raise subprocess.TimeoutExpired(args, timeout)
-            time.sleep(0.05)
+            time.sleep(AUDIO_ENVELOPE_SECONDS if audio_playback else 0.05)
         if process.returncode:
             raise subprocess.CalledProcessError(process.returncode, args)
     finally:
@@ -298,6 +354,7 @@ def _run_cancelable(
             RadioSession._terminate_process(process)
         session.set_process(None)
         if audio_playback:
+            _publish_audio_meter(False, 0.0)
             _set_audio_playing(False)
 
 

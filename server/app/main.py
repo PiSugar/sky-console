@@ -101,7 +101,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="SkyTrace ADS-B",
-    version="1.4.1",
+    version="1.4.2",
     docs_url=None,
     redoc_url=None,
     lifespan=lifespan,

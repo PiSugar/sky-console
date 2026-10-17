@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import math
+import tempfile
 import unittest
+import wave
+from array import array
 
 from server.app.radio import (
     begin_radio_session,
@@ -10,6 +14,7 @@ from server.app.radio import (
     radio_route_text,
     radio_text,
     voice_for_aircraft,
+    _wav_envelope,
 )
 
 
@@ -58,6 +63,21 @@ class RadioTests(unittest.TestCase):
 
     def test_radio_is_idle_without_audio_playback(self) -> None:
         self.assertFalse(is_radio_playing())
+
+    def test_wav_envelope_tracks_audio_amplitude(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".wav") as audio:
+            with wave.open(audio.name, "wb") as output:
+                output.setnchannels(1)
+                output.setsampwidth(2)
+                output.setframerate(1000)
+                quiet = [int(1000 * math.sin(index)) for index in range(30)]
+                loud = [int(12000 * math.sin(index)) for index in range(30)]
+                output.writeframes(array("h", quiet + loud).tobytes())
+            envelope = _wav_envelope(audio.name)
+
+        self.assertEqual(len(envelope), 2)
+        self.assertLess(envelope[0], envelope[1])
+        self.assertEqual(envelope[1], 1.0)
 
 
 if __name__ == "__main__":

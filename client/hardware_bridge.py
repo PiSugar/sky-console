@@ -26,7 +26,10 @@ WHISPLAY_GREEN_LINE = 24
 WHISPLAY_BLUE_LINE = 23
 SIGNAL_PULSE_SECONDS = 0.12
 SIGNAL_PERIOD_SECONDS = 2.0
-STATUS_POLL_SECONDS = 0.15
+SIGNAL_POLL_SECONDS = 0.5
+AUDIO_METER_POLL_SECONDS = 0.03
+GREEN_PWM_PERIOD_SECONDS = 0.01
+AUDIO_METER = struct.Struct("<BfQ")
 
 
 def normalize_axis(value: int, deadzone: int = 18) -> float:
@@ -66,12 +69,25 @@ def post_event(endpoint: str, event: dict[str, object]) -> None:
         response.read()
 
 
-def fetch_hardware_status(endpoint: str) -> tuple[bool, bool]:
-    with urllib.request.urlopen(endpoint, timeout=0.8) as response:
-        payload = json.load(response)
-    if not isinstance(payload, dict):
-        return False, False
-    return bool(payload.get("signal_active")), bool(payload.get("radio_playing"))
+def read_signal_active(path: str, active_window: float = 90.0) -> bool:
+    try:
+        with open(path, encoding="utf-8") as source:
+            payload = json.load(source)
+    except (OSError, json.JSONDecodeError):
+        return False
+    return any(float(item.get("seen", active_window + 1)) <= active_window for item in payload.get("aircraft", []))
+
+
+def read_audio_meter(path: str, stale_seconds: float = 0.5) -> tuple[bool, float]:
+    try:
+        with open(path, "rb") as source:
+            payload = source.read(AUDIO_METER.size)
+        active, level, updated_at_ns = AUDIO_METER.unpack(payload)
+    except (OSError, struct.error):
+        return False, 0.0
+    if time.time_ns() - updated_at_ns > int(stale_seconds * 1_000_000_000):
+        return False, 0.0
+    return bool(active), max(0.0, min(1.0, float(level)))
 
 
 def open_button() -> tuple[Any, Any]:
@@ -174,8 +190,9 @@ def set_rgb_led(led: Any, color: str) -> None:
 
 
 class StatusLed:
-    def __init__(self, endpoint: str) -> None:
-        self.endpoint = endpoint
+    def __init__(self, signal_path: str, audio_meter_path: str) -> None:
+        self.signal_path = signal_path
+        self.audio_meter_path = audio_meter_path
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -204,21 +221,18 @@ class StatusLed:
                 WHISPLAY_BLUE_LINE,
             )
             signal_active = radio_playing = False
-            next_status_poll = next_pulse = 0.0
+            audio_level = 0.0
+            next_signal_poll = next_audio_poll = next_pulse = 0.0
             pulse_until = 0.0
             previous_color: str | None = None
-            last_status_warning = 0.0
             while not self._stop.is_set():
                 now = time.monotonic()
-                if now >= next_status_poll:
-                    try:
-                        signal_active, radio_playing = fetch_hardware_status(self.endpoint)
-                    except Exception as exc:
-                        signal_active = radio_playing = False
-                        if now - last_status_warning >= 10.0:
-                            LOGGER.warning("hardware status read failed: %s", exc)
-                            last_status_warning = now
-                    next_status_poll = now + STATUS_POLL_SECONDS
+                if now >= next_signal_poll:
+                    signal_active = read_signal_active(self.signal_path)
+                    next_signal_poll = now + SIGNAL_POLL_SECONDS
+                if now >= next_audio_poll:
+                    radio_playing, audio_level = read_audio_meter(self.audio_meter_path)
+                    next_audio_poll = now + AUDIO_METER_POLL_SECONDS
 
                 state = "speaking" if radio_playing else ("signal" if signal_active else "no-signal")
                 if state != previous_state:
@@ -227,7 +241,8 @@ class StatusLed:
                     next_pulse = now
 
                 if radio_playing:
-                    color = "green"
+                    duty_cycle = max(0.03, audio_level)
+                    color = "green" if now % GREEN_PWM_PERIOD_SECONDS < duty_cycle * GREEN_PWM_PERIOD_SECONDS else "off"
                 else:
                     if now >= next_pulse:
                         pulse_until = now + SIGNAL_PULSE_SECONDS
@@ -236,7 +251,7 @@ class StatusLed:
                 if color != previous_color:
                     set_rgb_led(led, color)
                     previous_color = color
-                self._stop.wait(0.03)
+                self._stop.wait(0.001)
         except Exception:
             LOGGER.exception("Whisplay status LED unavailable")
         finally:
@@ -254,7 +269,8 @@ class StatusLed:
 @dataclass
 class Bridge:
     endpoint: str
-    signal_endpoint: str
+    signal_path: str
+    audio_meter_path: str
     joystick_x_sign: int
     joystick_y_sign: int
     scroll_sign: int
@@ -270,7 +286,7 @@ class Bridge:
         from smbus2 import SMBus
 
         button, chip = open_button()
-        status_led = StatusLed(self.signal_endpoint)
+        status_led = StatusLed(self.signal_path, self.audio_meter_path)
         status_led.start()
         previous_whisplay_button = read_button(button)
         previous_joystick_button: int | None = None
@@ -346,9 +362,13 @@ def main() -> None:
             "SKYTRACE_HARDWARE_ENDPOINT",
             "http://127.0.0.1:38391/api/v1/hardware/event",
         ),
-        signal_endpoint=os.getenv(
-            "SKYTRACE_SIGNAL_ENDPOINT",
-            "http://127.0.0.1:38391/api/v1/hardware/status",
+        signal_path=os.getenv(
+            "SKYTRACE_SIGNAL_PATH",
+            "/home/pi/adsb-tracker/run/readsb/aircraft.json",
+        ),
+        audio_meter_path=os.getenv(
+            "SKYTRACE_RADIO_METER_PATH",
+            "/tmp/skytrace-radio-meter",
         ),
         joystick_x_sign=int(os.getenv("SKYTRACE_JOYSTICK_X_SIGN", "-1")),
         joystick_y_sign=int(os.getenv("SKYTRACE_JOYSTICK_Y_SIGN", "-1")),

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
-import io
 import sys
+import tempfile
+import time
 import unittest
-from unittest.mock import patch
 from pathlib import Path
 
 
@@ -41,16 +41,22 @@ class HardwareBridgeTests(unittest.TestCase):
         self.assertEqual(hardware_bridge.signed_counter_delta(-32768, 32767), 1)
         self.assertEqual(hardware_bridge.signed_counter_delta(32767, -32768), -1)
 
-    def test_hardware_status_tracks_signal_and_radio(self) -> None:
-        response = io.BytesIO(b'{"signal_active":true,"radio_playing":false}')
-        response.__enter__ = lambda value: value
-        response.__exit__ = lambda *_args: None
+    def test_signal_comes_from_active_readsb_aircraft(self) -> None:
+        with tempfile.NamedTemporaryFile(mode="w+", encoding="utf-8") as state:
+            state.write('{"aircraft":[{"hex":"ABC123","seen":1.2}]}')
+            state.flush()
+            self.assertTrue(hardware_bridge.read_signal_active(state.name))
 
-        with patch.object(hardware_bridge.urllib.request, "urlopen", return_value=response):
-            self.assertEqual(
-                hardware_bridge.fetch_hardware_status("http://example.test/status"),
-                (True, False),
-            )
+        source = MODULE_PATH.read_text(encoding="utf-8")
+        self.assertIn("/home/pi/adsb-tracker/run/readsb/aircraft.json", source)
+
+    def test_audio_meter_reads_fresh_waveform_level(self) -> None:
+        with tempfile.NamedTemporaryFile() as meter:
+            meter.write(hardware_bridge.AUDIO_METER.pack(True, 0.625, time.time_ns()))
+            meter.flush()
+            active, level = hardware_bridge.read_audio_meter(meter.name)
+        self.assertTrue(active)
+        self.assertAlmostEqual(level, 0.625)
 
     def test_whisplay_rgb_led_is_exclusive_and_active_low(self) -> None:
         self.assertEqual(hardware_bridge.WHISPLAY_RED_LINE, 25)
