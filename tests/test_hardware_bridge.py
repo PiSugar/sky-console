@@ -87,6 +87,7 @@ class HardwareBridgeTests(unittest.TestCase):
             audio_meter_path="/tmp/radio-meter",
             dialogue_endpoint="http://server/dialogue",
             stop_radio_endpoint="http://server/radio/stop",
+            dialogue_status_endpoint="http://server/dialogue/status",
             capture_device="plughw:2,0",
             hold_seconds=0.7,
             joystick_x_sign=-1,
@@ -123,6 +124,7 @@ class HardwareBridgeTests(unittest.TestCase):
             audio_meter_path="/tmp/radio-meter",
             dialogue_endpoint="http://server/dialogue",
             stop_radio_endpoint="http://server/radio/stop",
+            dialogue_status_endpoint="http://server/dialogue/status",
             capture_device="plughw:2,0",
             hold_seconds=0.7,
             joystick_x_sign=-1,
@@ -147,3 +149,36 @@ class HardwareBridgeTests(unittest.TestCase):
 
         self.assertEqual(post.call_args_list[-1].args[1]["action"], "select_nearest")
         self.assertFalse(bridge._question_blocked)
+
+    def test_aircraft_disconnect_interrupts_and_discards_recording(self) -> None:
+        bridge = hardware_bridge.Bridge(
+            endpoint="http://server/event",
+            signal_path="/tmp/aircraft.json",
+            audio_meter_path="/tmp/radio-meter",
+            dialogue_endpoint="http://server/dialogue",
+            stop_radio_endpoint="http://server/radio/stop",
+            dialogue_status_endpoint="http://server/dialogue/status",
+            capture_device="plughw:2,0",
+            hold_seconds=0.7,
+            joystick_x_sign=-1,
+            joystick_y_sign=-1,
+            scroll_sign=1,
+            deadzone=18,
+        )
+        process = mock.Mock()
+        with tempfile.NamedTemporaryFile(delete=False) as recording:
+            recording_path = recording.name
+        bridge._question_generation = 3
+        bridge._recording_process = process
+        bridge._recording_path = recording_path
+        bridge._recording_aircraft_icao = "780E2E"
+        bridge._listening.set()
+
+        with mock.patch.object(bridge, "emit") as emit:
+            bridge.interrupt_question("Aircraft disconnected", 3)
+
+        process.terminate.assert_called_once()
+        self.assertFalse(Path(recording_path).exists())
+        self.assertFalse(bridge._listening.is_set())
+        self.assertTrue(bridge._question_interrupted)
+        self.assertEqual(emit.call_args.args[0]["action"], "dialogue_interrupted")

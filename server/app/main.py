@@ -231,6 +231,19 @@ def hardware_stop_radio(request: Request) -> dict:
     }
 
 
+@app.get("/api/v1/hardware/dialogue/status", include_in_schema=False)
+def hardware_dialogue_availability(request: Request) -> dict:
+    if not is_local_or_docker_request(request):
+        raise HTTPException(status_code=403, detail="local hardware only")
+    selected_icao, message, reason = hardware_dialogue_status()
+    return {
+        "ready": bool(selected_icao),
+        "selected": selected_icao,
+        "message": message,
+        "reason": reason,
+    }
+
+
 def play_pilot_dialogue(icao: str, aircraft: dict, answer: str) -> None:
     session, _ = begin_radio_session(icao)
     try:

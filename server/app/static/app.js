@@ -1209,6 +1209,8 @@ function handleDialogueControl(message) {
     showDialogueStatus("error", "Unable to contact pilot", String(message.message || "Please try again."), 6000);
   } else if (message.action === "dialogue_unavailable") {
     showDialogueStatus("error", "No aircraft available", String(message.message || "Wait for an aircraft signal."), 6000);
+  } else if (message.action === "dialogue_interrupted") {
+    showDialogueStatus("error", "Aircraft disconnected", String(message.message || "Recording stopped."), 7000);
   }
 }
 

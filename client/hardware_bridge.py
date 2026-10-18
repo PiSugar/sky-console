@@ -73,6 +73,12 @@ def post_event(endpoint: str, event: dict[str, object]) -> dict[str, object]:
     return json.loads(payload) if payload else {}
 
 
+def get_status(endpoint: str) -> dict[str, object]:
+    request = urllib.request.Request(endpoint, method="GET")
+    with urllib.request.urlopen(request, timeout=0.8) as response:
+        return json.load(response)
+
+
 def post_audio_question(endpoint: str, audio_path: str) -> dict[str, object]:
     audio_base64 = base64.b64encode(Path(audio_path).read_bytes()).decode("ascii")
     payload = json.dumps({"audio_base64": audio_base64}).encode("utf-8")
@@ -301,6 +307,7 @@ class Bridge:
     audio_meter_path: str
     dialogue_endpoint: str
     stop_radio_endpoint: str
+    dialogue_status_endpoint: str
     capture_device: str
     hold_seconds: float
     joystick_x_sign: int
@@ -315,6 +322,10 @@ class Bridge:
         self._question_blocked = False
         self._question_block_message = ""
         self._question_block_notified = False
+        self._question_interrupted = False
+        self._question_generation = 0
+        self._recording_aircraft_icao = ""
+        self._recording_lock = threading.Lock()
         self._listening = threading.Event()
 
     def emit(self, event: dict[str, object]) -> None:
@@ -330,6 +341,9 @@ class Bridge:
         self._question_blocked = False
         self._question_block_message = ""
         self._question_block_notified = False
+        self._question_interrupted = False
+        self._question_generation += 1
+        generation = self._question_generation
         try:
             status = post_event(self.stop_radio_endpoint, {})
         except Exception as exc:
@@ -354,6 +368,7 @@ class Bridge:
                 self._question_block_notified = True
             return
         self._recording_path = f"/tmp/skytrace-question-{time.time_ns()}.wav"
+        self._recording_aircraft_icao = str(status.get("selected") or "")
         self._listening.set()
         self.emit({"action": "dialogue_listening"})
         try:
@@ -378,13 +393,74 @@ class Bridge:
                 stderr=subprocess.DEVNULL,
             )
             LOGGER.info("pilot question recording started device=%s", self.capture_device)
+            threading.Thread(
+                target=self.monitor_question_aircraft,
+                args=(self._recording_aircraft_icao, generation),
+                name="skytrace-question-aircraft-monitor",
+                daemon=True,
+            ).start()
         except OSError as exc:
             LOGGER.warning("question recording failed to start: %s", exc)
             self._recording_process = None
             self._listening.clear()
             self.emit({"action": "dialogue_error", "message": "Microphone could not start"})
 
+    def monitor_question_aircraft(self, selected_icao: str, generation: int) -> None:
+        consecutive_errors = 0
+        while self._listening.is_set() and generation == self._question_generation:
+            time.sleep(0.35)
+            if not self._listening.is_set() or generation != self._question_generation:
+                return
+            try:
+                status = get_status(self.dialogue_status_endpoint)
+                consecutive_errors = 0
+            except Exception as exc:
+                consecutive_errors += 1
+                if consecutive_errors < 3:
+                    continue
+                LOGGER.warning("aircraft dialogue status failed: %s", exc)
+                self.interrupt_question(
+                    "Aircraft status was lost. Recording stopped.", generation
+                )
+                return
+            if status.get("ready") and status.get("selected") == selected_icao:
+                continue
+            self.interrupt_question(
+                str(
+                    status.get("message")
+                    or "The selected aircraft disconnected. Recording stopped."
+                ),
+                generation,
+            )
+            return
+
+    def interrupt_question(self, message: str, generation: int) -> None:
+        with self._recording_lock:
+            if generation != self._question_generation or not self._listening.is_set():
+                return
+            process = self._recording_process
+            path = self._recording_path
+            self._recording_process = None
+            self._recording_path = None
+            self._recording_aircraft_icao = ""
+            self._question_interrupted = True
+            self._listening.clear()
+        if process is not None:
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=1)
+        if path:
+            Path(path).unlink(missing_ok=True)
+        LOGGER.warning("pilot question interrupted: %s", message)
+        self.emit({"action": "dialogue_interrupted", "message": message})
+
     def finish_question(self) -> None:
+        if self._question_interrupted:
+            self._question_interrupted = False
+            return
         if self._question_blocked:
             held_seconds = time.monotonic() - self._button_pressed_at
             self._question_blocked = False
@@ -401,11 +477,14 @@ class Bridge:
             self._question_block_notified = False
             return
         held_seconds = time.monotonic() - self._button_pressed_at
-        process = self._recording_process
-        path = self._recording_path
-        self._recording_process = None
-        self._recording_path = None
-        self._listening.clear()
+        with self._recording_lock:
+            process = self._recording_process
+            path = self._recording_path
+            selected_icao = self._recording_aircraft_icao
+            self._recording_process = None
+            self._recording_path = None
+            self._recording_aircraft_icao = ""
+            self._listening.clear()
         if process is not None:
             process.terminate()
             try:
@@ -419,6 +498,23 @@ class Bridge:
                 Path(path).unlink(missing_ok=True)
             self.emit({"action": "dialogue_idle"})
             self.emit({"action": "select_nearest"})
+            return
+        try:
+            final_status = get_status(self.dialogue_status_endpoint)
+        except Exception:
+            final_status = {"ready": True, "selected": selected_icao}
+        if not final_status.get("ready") or final_status.get("selected") != selected_icao:
+            if path:
+                Path(path).unlink(missing_ok=True)
+            self.emit(
+                {
+                    "action": "dialogue_interrupted",
+                    "message": str(
+                        final_status.get("message")
+                        or "The selected aircraft disconnected. Recording stopped."
+                    ),
+                }
+            )
             return
         if not path or recording_size <= 44:
             if path:
@@ -556,6 +652,10 @@ def main() -> None:
         stop_radio_endpoint=os.getenv(
             "SKYTRACE_STOP_RADIO_ENDPOINT",
             "http://127.0.0.1:38391/api/v1/hardware/radio/stop",
+        ),
+        dialogue_status_endpoint=os.getenv(
+            "SKYTRACE_DIALOGUE_STATUS_ENDPOINT",
+            "http://127.0.0.1:38391/api/v1/hardware/dialogue/status",
         ),
         capture_device=os.getenv("SKYTRACE_CAPTURE_DEVICE", "plughw:2,0"),
         hold_seconds=float(os.getenv("SKYTRACE_BUTTON_HOLD_SECONDS", "0.7")),

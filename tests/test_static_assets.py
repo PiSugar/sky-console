@@ -122,6 +122,7 @@ class StaticAssetTests(unittest.TestCase):
         self.assertIn('message.action === "dialogue_transcribing"', script)
         self.assertIn('message.action === "dialogue_answer"', script)
         self.assertIn('message.action === "dialogue_unavailable"', script)
+        self.assertIn('message.action === "dialogue_interrupted"', script)
         self.assertIn("aircraft.aircraft_photo_url", script)
         self.assertIn(".quick-card-photo", stylesheet)
         self.assertIn(".aircraft-photo", stylesheet)
