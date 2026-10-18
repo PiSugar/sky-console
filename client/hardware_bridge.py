@@ -370,6 +370,7 @@ class Bridge:
         if held_seconds < self.hold_seconds:
             if path:
                 Path(path).unlink(missing_ok=True)
+            self.emit({"action": "dialogue_idle"})
             self.emit({"action": "select_nearest"})
             return
         if not path or recording_size <= 44:

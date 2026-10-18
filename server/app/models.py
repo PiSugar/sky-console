@@ -98,6 +98,7 @@ class HardwareControlEvent(BaseModel):
         "select_nearest",
         "toggle_follow",
         "dialogue_listening",
+        "dialogue_idle",
         "dialogue_transcribing",
         "dialogue_answer",
         "dialogue_error",

@@ -1179,7 +1179,10 @@ function showDialogueStatus(kind, title, text, timeout = 0) {
 }
 
 function handleDialogueControl(message) {
-  if (message.action === "dialogue_listening") {
+  if (message.action === "dialogue_idle") {
+    window.clearTimeout(state.dialogueStatusTimer);
+    elements.dialogueStatus.hidden = true;
+  } else if (message.action === "dialogue_listening") {
     showDialogueStatus("listening", "Listening…", "Keep holding the button, then release to send.");
   } else if (message.action === "dialogue_transcribing") {
     showDialogueStatus("transcribing", "Recognizing speech…", "Please wait for the pilot response.");
