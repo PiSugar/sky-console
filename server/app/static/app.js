@@ -1176,11 +1176,20 @@ function showDialogueStatus(kind, title, text, timeout = 0) {
   elements.dialogueStatusTitle.textContent = title;
   elements.dialogueStatusText.textContent = text || "";
   elements.dialogueStatus.hidden = false;
+  positionDialogueStatus();
   if (timeout) {
     state.dialogueStatusTimer = window.setTimeout(() => {
       elements.dialogueStatus.hidden = true;
     }, timeout);
   }
+}
+
+function positionDialogueStatus() {
+  if (!elements.dialogueStatus || elements.dialogueStatus.hidden) return;
+  const cardHeight = elements.mapQuickCard && !elements.mapQuickCard.hidden
+    ? elements.mapQuickCard.offsetHeight
+    : 0;
+  elements.dialogueStatus.style.bottom = `${cardHeight + 16}px`;
 }
 
 function handleDialogueControl(message) {

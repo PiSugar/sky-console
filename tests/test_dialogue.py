@@ -30,3 +30,13 @@ class PilotDialogueTests(unittest.TestCase):
         facts = aircraft_facts(AIRCRAFT)
         self.assertIn("ground speed knots: 438.7", facts)
         self.assertIn("vertical rate feet per minute: -640", facts)
+
+    def test_joke_request_gets_a_natural_pilot_joke(self) -> None:
+        answer = fixed_pilot_answer("Tell me a joke", AIRCRAFT)
+        self.assertNotIn("I can report", answer)
+        self.assertTrue(any(word in answer.lower() for word in ("airplane", "pilot", "wing")))
+
+    def test_unknown_request_gets_a_humorous_refusal(self) -> None:
+        answer = fixed_pilot_answer("Explain quantum gravity", AIRCRAFT)
+        self.assertIn("cockpit", answer.lower())
+        self.assertIn("coffee", answer.lower())

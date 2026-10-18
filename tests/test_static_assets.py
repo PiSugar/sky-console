@@ -123,7 +123,9 @@ class StaticAssetTests(unittest.TestCase):
         self.assertIn("aircraft.aircraft_photo_url", script)
         self.assertIn(".quick-card-photo", stylesheet)
         self.assertIn(".aircraft-photo", stylesheet)
-        self.assertIn("background: rgba(0, 0, 0, 0.94)", stylesheet)
+        self.assertIn("background: rgba(0, 0, 0, 0.88)", stylesheet)
+        self.assertIn("positionDialogueStatus();", script)
+        self.assertIn("text-overflow: ellipsis", stylesheet)
 
     def test_aircraft_detail_exposes_coordinate_verification(self) -> None:
         script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
