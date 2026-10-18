@@ -4,7 +4,6 @@ import asyncio
 import hmac
 import ipaddress
 import logging
-import subprocess
 import threading
 import urllib.error
 from contextlib import asynccontextmanager
@@ -164,7 +163,9 @@ def health() -> dict:
 
 
 def close_kiosk_process() -> None:
-    subprocess.run(["pkill", "-f", "^angelfish"], check=False)
+    request_path = Path(settings.kiosk_close_request_path)
+    request_path.parent.mkdir(parents=True, exist_ok=True)
+    request_path.touch()
 
 
 def normalize_icao(icao: str) -> str:

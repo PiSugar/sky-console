@@ -5,10 +5,23 @@ import unittest
 from pathlib import Path
 
 
-STATIC_DIR = Path(__file__).parents[1] / "server" / "app" / "static"
+PROJECT_DIR = Path(__file__).parents[1]
+STATIC_DIR = PROJECT_DIR / "server" / "app" / "static"
 
 
 class StaticAssetTests(unittest.TestCase):
+    def test_kiosk_close_uses_a_host_visible_request_marker(self) -> None:
+        main_source = (PROJECT_DIR / "server" / "app" / "main.py").read_text(encoding="utf-8")
+        compose = (PROJECT_DIR / "docker-compose.yml").read_text(encoding="utf-8")
+        launcher = (PROJECT_DIR / "runtime" / "start-kiosk.sh").read_text(encoding="utf-8")
+        script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("request_path.touch()", main_source)
+        self.assertIn("./runtime/state:/run/skytrace", compose)
+        self.assertIn('if [ -e "$SKYTRACE_CLOSE_MARKER" ]', launcher)
+        self.assertIn('kill "$kiosk_pid"', launcher)
+        self.assertIn("if (!response.ok) throw new Error", script)
+
     def test_leaflet_is_served_locally(self) -> None:
         index = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
@@ -128,7 +141,10 @@ class StaticAssetTests(unittest.TestCase):
         self.assertIn(".aircraft-photo", stylesheet)
         self.assertIn("background: rgba(0, 0, 0, 0.88)", stylesheet)
         self.assertIn("positionDialogueStatus();", script)
-        self.assertIn("text-overflow: ellipsis", stylesheet)
+        self.assertIn("function showPilotAnswer(question, answer)", script)
+        self.assertIn("window.setInterval(revealWord, 260)", script)
+        self.assertIn("overflow-wrap: anywhere", stylesheet)
+        self.assertIn("white-space: normal", stylesheet)
 
     def test_aircraft_detail_exposes_coordinate_verification(self) -> None:
         script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")

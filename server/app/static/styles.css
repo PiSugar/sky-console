@@ -698,16 +698,22 @@ body.kiosk-map .map-quick-card:not([hidden]) {
 
 .dialogue-status strong,
 .dialogue-status p {
-  overflow: hidden;
   margin: 0;
   color: #fff;
   font-size: clamp(11px, 2vw, 14px);
   line-height: 1.25;
+}
+.dialogue-status strong {
+  overflow: hidden;
+  font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.dialogue-status strong { font-weight: 650; }
-.dialogue-status p { color: rgba(255, 255, 255, 0.88); }
+.dialogue-status p {
+  color: rgba(255, 255, 255, 0.88);
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
 .dialogue-status.is-listening { border-color: rgba(255, 159, 45, 0.8); }
 .dialogue-status.is-listening span { color: #ff9f2d; }
 .dialogue-status.is-error { border-color: rgba(255, 98, 98, 0.75); }

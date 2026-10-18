@@ -41,6 +41,9 @@ const state = {
   kioskMode: false,
   radioClickCooldowns: new Map(),
   dialogueStatusTimer: null,
+  dialogueWordTimer: null,
+  lastDialogueAnswerKey: "",
+  lastDialogueAnswerAt: 0,
 };
 
 const elements = {
@@ -1171,6 +1174,8 @@ function selectNearestVisibleAircraft() {
 function showDialogueStatus(kind, title, text, timeout = 0) {
   if (!elements.dialogueStatus) return;
   window.clearTimeout(state.dialogueStatusTimer);
+  window.clearInterval(state.dialogueWordTimer);
+  state.dialogueWordTimer = null;
   elements.dialogueStatus.className = `dialogue-status is-${kind}`;
   elements.dialogueStatusLabel.textContent = kind === "listening" ? "WHISPLAY MICROPHONE" : "PILOT RADIO";
   elements.dialogueStatusTitle.textContent = title;
@@ -1184,6 +1189,39 @@ function showDialogueStatus(kind, title, text, timeout = 0) {
   }
 }
 
+function showPilotAnswer(question, answer) {
+  const key = `${question}\n${answer}`;
+  const now = Date.now();
+  if (key === state.lastDialogueAnswerKey && now - state.lastDialogueAnswerAt < 2000) return;
+  state.lastDialogueAnswerKey = key;
+  state.lastDialogueAnswerAt = now;
+
+  const words = answer.split(/\s+/).filter(Boolean);
+  showDialogueStatus("answer", question ? `YOU: ${question}` : "PILOT RESPONSE", "PILOT:");
+  if (!words.length) {
+    elements.dialogueStatusText.textContent = "PILOT: No response received.";
+    state.dialogueStatusTimer = window.setTimeout(() => { elements.dialogueStatus.hidden = true; }, 7000);
+    return;
+  }
+
+  let visibleWords = 0;
+  const revealWord = () => {
+    visibleWords += 1;
+    elements.dialogueStatusText.textContent = `PILOT: ${words.slice(0, visibleWords).join(" ")}`;
+    positionDialogueStatus();
+    if (visibleWords >= words.length) {
+      window.clearInterval(state.dialogueWordTimer);
+      state.dialogueWordTimer = null;
+      const lingerMs = Math.min(12000, Math.max(5000, words.length * 240));
+      state.dialogueStatusTimer = window.setTimeout(() => {
+        elements.dialogueStatus.hidden = true;
+      }, lingerMs);
+    }
+  };
+  revealWord();
+  state.dialogueWordTimer = window.setInterval(revealWord, 260);
+}
+
 function positionDialogueStatus() {
   if (!elements.dialogueStatus || elements.dialogueStatus.hidden) return;
   const cardHeight = elements.mapQuickCard && !elements.mapQuickCard.hidden
@@ -1195,6 +1233,7 @@ function positionDialogueStatus() {
 function handleDialogueControl(message) {
   if (message.action === "dialogue_idle") {
     window.clearTimeout(state.dialogueStatusTimer);
+    window.clearInterval(state.dialogueWordTimer);
     elements.dialogueStatus.hidden = true;
   } else if (message.action === "dialogue_listening") {
     showDialogueStatus("listening", "Listening…", "Keep holding the button, then release to send.");
@@ -1203,8 +1242,7 @@ function handleDialogueControl(message) {
   } else if (message.action === "dialogue_answer") {
     const question = String(message.question || "").trim();
     const answer = String(message.answer || "").trim() || "No response received.";
-    const words = answer.split(/\s+/).filter(Boolean).length;
-    showDialogueStatus("answer", question ? `YOU: ${question}` : "PILOT RESPONSE", `PILOT: ${answer}`, Math.min(20000, Math.max(7000, words * 520)));
+    showPilotAnswer(question, answer);
   } else if (message.action === "dialogue_error") {
     showDialogueStatus("error", "Unable to contact pilot", String(message.message || "Please try again."), 6000);
   } else if (message.action === "dialogue_unavailable") {
@@ -1761,8 +1799,11 @@ elements.kioskClose.addEventListener("click", async () => {
   state.socket?.close(1000, "kiosk closed");
   elements.kioskClose.disabled = true;
   try {
-    await fetch("/api/v1/kiosk/close", { method: "POST" });
+    const response = await fetch("/api/v1/kiosk/close", { method: "POST" });
+    if (!response.ok) throw new Error(`Close failed (${response.status})`);
+    window.setTimeout(() => window.close(), 500);
   } catch (_error) {
+    elements.kioskClose.disabled = false;
     window.close();
   }
 });

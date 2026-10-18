@@ -25,9 +25,10 @@ services:
       DIALOGUE_LLM_ENABLED: ${DIALOGUE_LLM_ENABLED:-false}
       DIALOGUE_OLLAMA_URL: http://ollama:11434
       DIALOGUE_OLLAMA_MODEL: ${DIALOGUE_OLLAMA_MODEL:-gemma4:e2b}
+      KIOSK_CLOSE_REQUEST_PATH: /run/skytrace/close-kiosk
     volumes:
       - ./data:/data
-      - skytrace-runtime:/run/skytrace
+      - ./runtime/state:/run/skytrace
     devices: ["/dev/snd:/dev/snd"]
     depends_on:
       faster-whisper: {condition: service_healthy}
@@ -96,7 +97,7 @@ services:
       - /dev/snd:/dev/snd
     volumes:
       - readsb-state:/run/readsb:ro
-      - skytrace-runtime:/run/skytrace:ro
+      - ./runtime/state:/run/skytrace:ro
     depends_on:
       adsb-server: {condition: service_healthy}
       adsb-client: {condition: service_started}
@@ -154,5 +155,4 @@ services:
 
 volumes:
   readsb-state:
-  skytrace-runtime:
   ollama-data:

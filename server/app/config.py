@@ -52,6 +52,7 @@ class Settings:
     dialogue_llm_enabled: bool
     dialogue_ollama_url: str
     dialogue_ollama_model: str
+    kiosk_close_request_path: str
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -105,4 +106,7 @@ class Settings:
                 "DIALOGUE_OLLAMA_URL", "http://ollama:11434"
             ).rstrip("/"),
             dialogue_ollama_model=os.getenv("DIALOGUE_OLLAMA_MODEL", "gemma4:e2b"),
+            kiosk_close_request_path=os.getenv(
+                "KIOSK_CLOSE_REQUEST_PATH", "/run/skytrace/close-kiosk"
+            ),
         )
