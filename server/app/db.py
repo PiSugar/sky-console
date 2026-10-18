@@ -101,6 +101,9 @@ CREATE TABLE IF NOT EXISTS aircraft_metadata (
     owner_flag_code TEXT,
     photo_url TEXT,
     photo_thumbnail_url TEXT,
+    photo_link TEXT,
+    photo_credit TEXT,
+    photo_source TEXT,
     source TEXT NOT NULL,
     lookup_status TEXT NOT NULL,
     fetched_at_ms INTEGER NOT NULL,
@@ -173,6 +176,9 @@ ENRICHMENT_COLUMNS = """
     am.owner_flag_code AS registered_owner_flag_code,
     am.photo_url AS aircraft_photo_url,
     am.photo_thumbnail_url AS aircraft_photo_thumbnail_url,
+    am.photo_link AS aircraft_photo_link,
+    am.photo_credit AS aircraft_photo_credit,
+    am.photo_source AS aircraft_photo_source,
     am.source AS metadata_source,
     am.lookup_status AS metadata_status,
     am.fetched_at_ms AS metadata_fetched_at_ms,
@@ -335,6 +341,15 @@ class Database:
             }
             if "position_at_ms" not in aircraft_columns:
                 connection.execute("ALTER TABLE aircraft ADD COLUMN position_at_ms INTEGER")
+            metadata_columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(aircraft_metadata)")
+            }
+            for column in ("photo_link", "photo_credit", "photo_source"):
+                if column not in metadata_columns:
+                    connection.execute(
+                        f"ALTER TABLE aircraft_metadata ADD COLUMN {column} TEXT"
+                    )
             connection.execute("PRAGMA optimize")
 
     def health(self) -> dict[str, Any]:
@@ -771,6 +786,13 @@ class Database:
     def aircraft_metadata_due(
         self, icao: str, success_ttl_ms: int, retry_ttl_ms: int
     ) -> bool:
+        with self.connection() as connection:
+            photo_state = connection.execute(
+                "SELECT photo_source FROM aircraft_metadata WHERE icao = ?",
+                (icao,),
+            ).fetchone()
+        if photo_state is not None and photo_state["photo_source"] is None:
+            return True
         return self._enrichment_due(
             "aircraft_metadata", "icao", icao, success_ttl_ms, retry_ttl_ms
         )
@@ -824,6 +846,9 @@ class Database:
             "owner_flag_code": values.get("owner_flag_code"),
             "photo_url": values.get("photo_url"),
             "photo_thumbnail_url": values.get("photo_thumbnail_url"),
+            "photo_link": values.get("photo_link"),
+            "photo_credit": values.get("photo_credit"),
+            "photo_source": values.get("photo_source"),
             "source": "ADSBDB",
             "lookup_status": status,
             "fetched_at_ms": int(time.time() * 1000),
@@ -835,10 +860,12 @@ class Database:
                 INSERT INTO aircraft_metadata (
                     icao, registration, manufacturer, model, type_code, owner,
                     owner_country, owner_flag_code, photo_url, photo_thumbnail_url,
+                    photo_link, photo_credit, photo_source,
                     source, lookup_status, fetched_at_ms, error
                 ) VALUES (
                     :icao, :registration, :manufacturer, :model, :type_code, :owner,
                     :owner_country, :owner_flag_code, :photo_url, :photo_thumbnail_url,
+                    :photo_link, :photo_credit, :photo_source,
                     :source, :lookup_status, :fetched_at_ms, :error
                 )
                 ON CONFLICT(icao) DO UPDATE SET
@@ -851,6 +878,9 @@ class Database:
                     owner_flag_code = excluded.owner_flag_code,
                     photo_url = excluded.photo_url,
                     photo_thumbnail_url = excluded.photo_thumbnail_url,
+                    photo_link = excluded.photo_link,
+                    photo_credit = excluded.photo_credit,
+                    photo_source = excluded.photo_source,
                     source = excluded.source,
                     lookup_status = excluded.lookup_status,
                     fetched_at_ms = excluded.fetched_at_ms,

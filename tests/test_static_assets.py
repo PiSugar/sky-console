@@ -99,15 +99,30 @@ class StaticAssetTests(unittest.TestCase):
         self.assertIn("bounds.contains(markerPosition)", script)
         self.assertIn("showAircraftQuickCard(nearest)", script)
         self.assertIn("playAircraftRadio(nearest)", script)
-        self.assertIn("state.map.flyTo(nearestPosition", script)
+        self.assertIn("focusAircraft(nearestPosition)", script)
         self.assertIn("state.map.setZoom(state.map.getZoom() + delta, { animate: true })", script)
         self.assertIn('message.action === "toggle_follow"', script)
         self.assertIn("function toggleAircraftFollow()", script)
         self.assertIn("function releaseAircraftFollow(notify = false)", script)
-        self.assertIn("state.map.panTo(followedMarker.getLatLng()", script)
+        self.assertIn("state.map.panTo(aircraftFocusCenter(followedMarker.getLatLng())", script)
         self.assertIn('id="map-follow-status"', (STATIC_DIR / "index.html").read_text(encoding="utf-8"))
         self.assertIn(".map-follow-status", stylesheet)
+        self.assertIn("function aircraftFocusCenter(latLng", script)
         self.assertNotIn(".leaflet-tile-container,\n.leaflet-map-pane", stylesheet)
+
+    def test_dialogue_status_and_real_aircraft_photo_are_rendered(self) -> None:
+        script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+        index = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        stylesheet = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn('id="dialogue-status"', index)
+        self.assertIn('message.action === "dialogue_listening"', script)
+        self.assertIn('message.action === "dialogue_transcribing"', script)
+        self.assertIn('message.action === "dialogue_answer"', script)
+        self.assertIn("aircraft.aircraft_photo_url", script)
+        self.assertIn(".quick-card-photo", stylesheet)
+        self.assertIn(".aircraft-photo", stylesheet)
+        self.assertIn("background: rgba(0, 0, 0, 0.94)", stylesheet)
 
     def test_aircraft_detail_exposes_coordinate_verification(self) -> None:
         script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")

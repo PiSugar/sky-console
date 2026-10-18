@@ -89,7 +89,9 @@ class EnrichmentCacheTests(unittest.TestCase):
         self.assertEqual(search["total"], 1)
 
     def test_successful_cache_is_not_immediately_due(self) -> None:
-        self.database.save_aircraft_metadata("40621D", {}, "ok")
+        self.database.save_aircraft_metadata(
+            "40621D", {"photo_source": "none"}, "ok"
+        )
         self.assertFalse(
             self.database.aircraft_metadata_due("40621D", 3_600_000, 60_000)
         )
@@ -127,7 +129,10 @@ class EnrichmentCacheTests(unittest.TestCase):
                 }
             },
         }
-        with patch.object(service, "_get_json", side_effect=lambda endpoint: responses[endpoint]):
+        with (
+            patch.object(service, "_get_json", side_effect=lambda endpoint: responses[endpoint]),
+            patch.object(service, "_lookup_planespotters_photo", return_value={"photo_source": "none"}),
+        ):
             service._lookup_aircraft("40621D")
             service._lookup_route("BAW123")
 

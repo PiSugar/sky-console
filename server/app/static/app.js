@@ -40,6 +40,7 @@ const state = {
   socketStopped: false,
   kioskMode: false,
   radioClickCooldowns: new Map(),
+  dialogueStatusTimer: null,
 };
 
 const elements = {
@@ -59,6 +60,10 @@ const elements = {
   toast: document.querySelector("#toast"),
   mapQuickCard: document.querySelector("#map-quick-card"),
   mapFollowStatus: document.querySelector("#map-follow-status"),
+  dialogueStatus: document.querySelector("#dialogue-status"),
+  dialogueStatusLabel: document.querySelector("#dialogue-status-label"),
+  dialogueStatusTitle: document.querySelector("#dialogue-status-title"),
+  dialogueStatusText: document.querySelector("#dialogue-status-text"),
   kioskStats: document.querySelector("#kiosk-stats"),
   kioskClose: document.querySelector("#kiosk-close"),
 };
@@ -359,6 +364,11 @@ function renderAircraftQuickCard() {
   const airlineText = airlineName || (airlineLoading ? "Loading airline data" : "No airline data");
   const model = aircraftModelLabel(aircraft);
   const route = routeShort(aircraft);
+  const photoUrl = aircraft.aircraft_photo_url || aircraft.aircraft_photo_thumbnail_url;
+  const photoThumbnailUrl = aircraft.aircraft_photo_thumbnail_url || photoUrl;
+  const photoLink = aircraft.aircraft_photo_link || photoUrl;
+  const photoCredit = aircraft.aircraft_photo_credit;
+  const photoSource = aircraft.aircraft_photo_source;
   const registration = aircraft.registration || aircraft.metadata_registration || "Registration pending";
   const statusItems = [
     `ALT ${altitude(aircraft.altitude_baro)}`,
@@ -374,9 +384,12 @@ function renderAircraftQuickCard() {
       </div>
       <button type="button" data-quick-close aria-label="Close quick information">×</button>
     </div>
-    <div class="quick-card-identification">
-      <b class="${airlineLoading ? "is-loading" : ""}">${airlineLoading ? "<i></i>" : ""}${escapeHtml(airlineText)}</b>
-      <span>${escapeHtml(registration)} · ${escapeHtml(model)}</span>
+    <div class="quick-card-body">
+      ${photoUrl ? `<a class="quick-card-photo" href="${escapeHtml(photoLink)}" target="_blank" rel="noopener noreferrer" aria-label="Open aircraft photo"><img src="${escapeHtml(photoThumbnailUrl)}" alt="Real photo of ${escapeHtml(flightLabel(aircraft))}" />${photoSource ? `<small>${escapeHtml(photoCredit ? `© ${photoCredit} · ${photoSource}` : photoSource)}</small>` : ""}</a>` : ""}
+      <div class="quick-card-identification">
+        <b class="${airlineLoading ? "is-loading" : ""}">${airlineLoading ? "<i></i>" : ""}${escapeHtml(airlineText)}</b>
+        <span>${escapeHtml(registration)} · ${escapeHtml(model)}</span>
+      </div>
     </div>
     ${route ? `<div class="quick-card-route">${escapeHtml(route)}</div>` : ""}
     <div class="quick-card-footer">
@@ -433,6 +446,21 @@ function showAircraftQuickCard(icao) {
   refreshQuickCardEnrichment(icao);
 }
 
+function aircraftFocusCenter(latLng, zoom = state.map?.getZoom()) {
+  if (!state.map || !latLng || !Number.isFinite(zoom)) return latLng;
+  const offset = Math.min(180, Math.max(90, state.map.getSize().y * 0.2));
+  return state.map.unproject(state.map.project(latLng, zoom).add(L.point(0, offset)), zoom);
+}
+
+function focusAircraft(latLng, animate = true) {
+  if (!state.map || !latLng) return;
+  state.map.flyTo(aircraftFocusCenter(latLng), state.map.getZoom(), {
+    animate,
+    duration: animate ? 0.65 : 0,
+    easeLinearity: 0.25,
+  });
+}
+
 function updateAircraftFollowStatus() {
   if (!elements.mapFollowStatus) return;
   const aircraft = state.live.find((item) => item.icao === state.followAircraftIcao);
@@ -462,11 +490,7 @@ function toggleAircraftFollow() {
   state.followAircraftIcao = icao;
   updateAircraftFollowStatus();
   const marker = state.aircraftMarkers.get(icao);
-  state.map.flyTo(marker.getLatLng(), state.map.getZoom(), {
-    animate: true,
-    duration: 0.65,
-    easeLinearity: 0.25,
-  });
+  focusAircraft(marker.getLatLng());
   showToast(`Following ${flightLabel(state.live.find((item) => item.icao === icao) || { icao })}`);
 }
 
@@ -913,7 +937,10 @@ function renderMap() {
       updateAircraftMotion(marker, aircraft, simulationNow);
       marker.on("click", () => {
         playAircraftRadio(key);
-        if (quickCardMode()) showAircraftQuickCard(key);
+        if (quickCardMode()) {
+          showAircraftQuickCard(key);
+          focusAircraft(marker.getLatLng());
+        }
         else openAircraft(key);
       });
       marker.bindTooltip("", { direction: "top", offset: [0, -13], className: "sky-tooltip" });
@@ -987,7 +1014,7 @@ function renderMap() {
   if (state.followAircraftIcao) {
     const followedMarker = state.aircraftMarkers.get(state.followAircraftIcao);
     if (followedMarker) {
-      state.map.panTo(followedMarker.getLatLng(), { animate: false });
+      state.map.panTo(aircraftFocusCenter(followedMarker.getLatLng()), { animate: false });
       updateAircraftFollowStatus();
       state.didInitialFit = true;
     } else {
@@ -1133,14 +1160,44 @@ function selectNearestVisibleAircraft() {
   }
   showAircraftQuickCard(nearest);
   playAircraftRadio(nearest);
-  state.map.flyTo(nearestPosition, state.map.getZoom(), {
-    animate: true,
-    duration: 0.65,
-    easeLinearity: 0.25,
-  });
+  focusAircraft(nearestPosition);
+}
+
+function showDialogueStatus(kind, title, text, timeout = 0) {
+  if (!elements.dialogueStatus) return;
+  window.clearTimeout(state.dialogueStatusTimer);
+  elements.dialogueStatus.className = `dialogue-status is-${kind}`;
+  elements.dialogueStatusLabel.textContent = kind === "listening" ? "WHISPLAY MICROPHONE" : "PILOT RADIO";
+  elements.dialogueStatusTitle.textContent = title;
+  elements.dialogueStatusText.textContent = text || "";
+  elements.dialogueStatus.hidden = false;
+  if (timeout) {
+    state.dialogueStatusTimer = window.setTimeout(() => {
+      elements.dialogueStatus.hidden = true;
+    }, timeout);
+  }
+}
+
+function handleDialogueControl(message) {
+  if (message.action === "dialogue_listening") {
+    showDialogueStatus("listening", "Listening…", "Keep holding the button, then release to send.");
+  } else if (message.action === "dialogue_transcribing") {
+    showDialogueStatus("transcribing", "Recognizing speech…", "Please wait for the pilot response.");
+  } else if (message.action === "dialogue_answer") {
+    const question = String(message.question || "").trim();
+    const answer = String(message.answer || "").trim() || "No response received.";
+    const words = answer.split(/\s+/).filter(Boolean).length;
+    showDialogueStatus("answer", question ? `YOU: ${question}` : "PILOT RESPONSE", `PILOT: ${answer}`, Math.min(20000, Math.max(7000, words * 520)));
+  } else if (message.action === "dialogue_error") {
+    showDialogueStatus("error", "Unable to contact pilot", String(message.message || "Please try again."), 6000);
+  }
 }
 
 function handleHardwareControl(message) {
+  if (String(message.action || "").startsWith("dialogue_")) {
+    handleDialogueControl(message);
+    return;
+  }
   if (document.hidden || !state.map || !document.querySelector("#view-live")?.classList.contains("is-active")) return;
   if (message.action === "pan") {
     releaseAircraftFollow(true);
@@ -1267,6 +1324,11 @@ function enrichmentMarkup(aircraft) {
   const destinationDetail = localizedAirportDetail(aircraft, "destination");
   const airlineName = localizedAirlineName(aircraft);
   const numbers = flightNumbers(aircraft);
+  const photoUrl = aircraft.aircraft_photo_url || aircraft.aircraft_photo_thumbnail_url;
+  const photoThumbnailUrl = aircraft.aircraft_photo_thumbnail_url || photoUrl;
+  const photoLink = aircraft.aircraft_photo_link || photoUrl;
+  const photoCredit = aircraft.aircraft_photo_credit;
+  const photoSource = aircraft.aircraft_photo_source;
 
   return `
     <section id="aircraft-enrichment" class="detail-section enrichment-section">
@@ -1277,6 +1339,7 @@ function enrichmentMarkup(aircraft) {
       <div class="enrichment-grid">
         <article class="enrichment-card">
           <span class="card-kicker">AIRCRAFT</span>
+          ${photoUrl ? `<a class="aircraft-photo" href="${escapeHtml(photoLink)}" target="_blank" rel="noopener noreferrer" aria-label="Open aircraft photo"><img src="${escapeHtml(photoThumbnailUrl)}" alt="Real photo of ${escapeHtml(flightLabel(aircraft))}" loading="lazy" />${photoSource ? `<small>${escapeHtml(photoCredit ? `Photo © ${photoCredit} · ${photoSource}` : `Photo: ${photoSource}`)}</small>` : ""}</a>` : ""}
           ${hasAircraftData ? `
             <strong>${escapeHtml(aircraftDescription(aircraft))}</strong>
             <dl class="info-rows">

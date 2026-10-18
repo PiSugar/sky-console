@@ -135,15 +135,16 @@ def read_button(button: Any) -> bool:
 
 
 def rgb_output_values(color: str) -> dict[int, int]:
-    """Return active-low GPIO values for one exclusive RGB color."""
+    """Return active-low GPIO values for an RGB color."""
 
-    enabled_line = {
-        "red": WHISPLAY_RED_LINE,
-        "green": WHISPLAY_GREEN_LINE,
-        "blue": WHISPLAY_BLUE_LINE,
-    }.get(color)
+    enabled_lines = {
+        "red": {WHISPLAY_RED_LINE},
+        "green": {WHISPLAY_GREEN_LINE},
+        "blue": {WHISPLAY_BLUE_LINE},
+        "orange": {WHISPLAY_RED_LINE, WHISPLAY_GREEN_LINE},
+    }.get(color, set())
     return {
-        line: 0 if line == enabled_line else 1
+        line: 0 if line in enabled_lines else 1
         for line in (WHISPLAY_RED_LINE, WHISPLAY_GREEN_LINE, WHISPLAY_BLUE_LINE)
     }
 
@@ -206,9 +207,15 @@ def set_rgb_led(led: Any, color: str) -> None:
 
 
 class StatusLed:
-    def __init__(self, signal_path: str, audio_meter_path: str) -> None:
+    def __init__(
+        self,
+        signal_path: str,
+        audio_meter_path: str,
+        listening: threading.Event | None = None,
+    ) -> None:
         self.signal_path = signal_path
         self.audio_meter_path = audio_meter_path
+        self.listening = listening or threading.Event()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -250,13 +257,17 @@ class StatusLed:
                     radio_playing, audio_level = read_audio_meter(self.audio_meter_path)
                     next_audio_poll = now + AUDIO_METER_POLL_SECONDS
 
-                state = "speaking" if radio_playing else ("signal" if signal_active else "no-signal")
+                state = "listening" if self.listening.is_set() else (
+                    "speaking" if radio_playing else ("signal" if signal_active else "no-signal")
+                )
                 if state != previous_state:
                     LOGGER.info("Whisplay status LED state=%s", state)
                     previous_state = state
                     next_pulse = now
 
-                if radio_playing:
+                if self.listening.is_set():
+                    color = "orange"
+                elif radio_playing:
                     duty_cycle = max(0.03, audio_level)
                     color = "green" if now % GREEN_PWM_PERIOD_SECONDS < duty_cycle * GREEN_PWM_PERIOD_SECONDS else "off"
                 else:
@@ -299,6 +310,7 @@ class Bridge:
         self._recording_process: subprocess.Popen[bytes] | None = None
         self._recording_path: str | None = None
         self._button_pressed_at = 0.0
+        self._listening = threading.Event()
 
     def emit(self, event: dict[str, object]) -> None:
         try:
@@ -318,6 +330,8 @@ class Bridge:
                     "-q",
                     "-D",
                     self.capture_device,
+                    "-t",
+                    "wav",
                     "-f",
                     "S16_LE",
                     "-r",
@@ -330,9 +344,13 @@ class Bridge:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
+            self._listening.set()
+            self.emit({"action": "dialogue_listening"})
+            LOGGER.info("pilot question recording started device=%s", self.capture_device)
         except OSError as exc:
             LOGGER.warning("question recording failed to start: %s", exc)
             self._recording_process = None
+            self.emit({"action": "dialogue_error", "message": "Microphone could not start"})
 
     def finish_question(self) -> None:
         held_seconds = time.monotonic() - self._button_pressed_at
@@ -340,6 +358,7 @@ class Bridge:
         path = self._recording_path
         self._recording_process = None
         self._recording_path = None
+        self._listening.clear()
         if process is not None:
             process.terminate()
             try:
@@ -347,11 +366,20 @@ class Bridge:
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=1)
-        if held_seconds < self.hold_seconds or not path or not Path(path).is_file():
+        recording_size = Path(path).stat().st_size if path and Path(path).is_file() else 0
+        if held_seconds < self.hold_seconds:
             if path:
                 Path(path).unlink(missing_ok=True)
             self.emit({"action": "select_nearest"})
             return
+        if not path or recording_size <= 44:
+            if path:
+                Path(path).unlink(missing_ok=True)
+            LOGGER.warning("pilot question recording is empty (bytes=%s)", recording_size)
+            self.emit({"action": "dialogue_error", "message": "No microphone audio was captured"})
+            return
+        LOGGER.info("pilot question recorded seconds=%.2f bytes=%s", held_seconds, recording_size)
+        self.emit({"action": "dialogue_transcribing"})
         threading.Thread(
             target=self.ask_pilot,
             args=(path,),
@@ -368,8 +396,18 @@ class Bridge:
                 result.get("question"),
                 result.get("answer"),
             )
+            self.emit(
+                {
+                    "action": "dialogue_answer",
+                    "question": str(result.get("question") or ""),
+                    "answer": str(result.get("answer") or ""),
+                    "mode": str(result.get("mode") or "fixed"),
+                }
+            )
         except Exception as exc:
             LOGGER.warning("pilot dialogue failed: %s", exc)
+            message = "Select an aircraft first" if "409" in str(exc) else "Pilot dialogue failed"
+            self.emit({"action": "dialogue_error", "message": message})
         finally:
             Path(path).unlink(missing_ok=True)
 
@@ -377,7 +415,7 @@ class Bridge:
         from smbus2 import SMBus
 
         button, chip = open_button()
-        status_led = StatusLed(self.signal_path, self.audio_meter_path)
+        status_led = StatusLed(self.signal_path, self.audio_meter_path, self._listening)
         status_led.start()
         previous_whisplay_button = read_button(button)
         previous_joystick_button: int | None = None

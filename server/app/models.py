@@ -92,10 +92,23 @@ class IngestBatch(BaseModel):
 class HardwareControlEvent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    action: Literal["pan", "zoom", "select_nearest", "toggle_follow"]
+    action: Literal[
+        "pan",
+        "zoom",
+        "select_nearest",
+        "toggle_follow",
+        "dialogue_listening",
+        "dialogue_transcribing",
+        "dialogue_answer",
+        "dialogue_error",
+    ]
     x: float = Field(default=0.0, ge=-1.0, le=1.0)
     y: float = Field(default=0.0, ge=-1.0, le=1.0)
     delta: int = Field(default=0, ge=-8, le=8)
+    question: str = Field(default="", max_length=1000)
+    answer: str = Field(default="", max_length=4000)
+    message: str = Field(default="", max_length=500)
+    mode: str = Field(default="", max_length=40)
 
 
 class HardwareSelection(BaseModel):

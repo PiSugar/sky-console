@@ -65,4 +65,12 @@ class HardwareBridgeTests(unittest.TestCase):
         self.assertEqual(hardware_bridge.rgb_output_values("red"), {25: 0, 24: 1, 23: 1})
         self.assertEqual(hardware_bridge.rgb_output_values("green"), {25: 1, 24: 0, 23: 1})
         self.assertEqual(hardware_bridge.rgb_output_values("blue"), {25: 1, 24: 1, 23: 0})
+        self.assertEqual(hardware_bridge.rgb_output_values("orange"), {25: 0, 24: 0, 23: 1})
         self.assertEqual(hardware_bridge.rgb_output_values("off"), {25: 1, 24: 1, 23: 1})
+
+    def test_long_press_emits_dialogue_progress(self) -> None:
+        source = MODULE_PATH.read_text(encoding="utf-8")
+
+        self.assertIn('self.emit({"action": "dialogue_listening"})', source)
+        self.assertIn('self.emit({"action": "dialogue_transcribing"})', source)
+        self.assertIn('"action": "dialogue_answer"', source)

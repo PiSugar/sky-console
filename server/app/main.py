@@ -199,8 +199,20 @@ def hardware_selection(request: Request, selection: HardwareSelection) -> dict:
     return {"selected": hardware_selected_icao}
 
 
+def play_pilot_dialogue(icao: str, aircraft: dict, answer: str) -> None:
+    session, _ = begin_radio_session(icao)
+    try:
+        _play_radio_segment(aircraft, session, "dialogue", answer, True)
+    finally:
+        finish_radio_session(session)
+
+
 @app.post("/api/v1/hardware/dialogue", include_in_schema=False)
-def hardware_dialogue(request: Request, question: PilotQuestion) -> dict:
+def hardware_dialogue(
+    request: Request,
+    question: PilotQuestion,
+    background_tasks: BackgroundTasks,
+) -> dict:
     if not is_local_or_docker_request(request):
         raise HTTPException(status_code=403, detail="local hardware only")
     icao = hardware_selected_icao
@@ -233,17 +245,14 @@ def hardware_dialogue(request: Request, question: PilotQuestion) -> dict:
     else:
         answer = fixed_pilot_answer(transcript, aircraft)
         mode = "fixed"
-    session, _ = begin_radio_session(icao)
-    try:
-        result = _play_radio_segment(aircraft, session, "dialogue", answer, True)
-    finally:
-        finish_radio_session(session)
+    background_tasks.add_task(play_pilot_dialogue, icao, aircraft, answer)
     return {
         "icao": icao,
         "question": transcript,
         "answer": answer,
         "mode": mode,
-        "played": bool(result.get("played")),
+        "played": False,
+        "queued": True,
     }
 
 

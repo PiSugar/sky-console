@@ -17,6 +17,8 @@ from .db import Database
 LOGGER = logging.getLogger("skytrace.enrichment")
 ICAO_PATTERN = re.compile(r"^[0-9A-F]{6}$")
 CALLSIGN_PATTERN = re.compile(r"^[A-Z0-9]{2,16}$")
+PLANESPOTTERS_PHOTO_URL = "https://api.planespotters.net/pub/photos/hex"
+PLANESPOTTERS_USER_AGENT = "SkyTrace/1.5 (+https://github.com/PiSugar/sky-console)"
 
 
 def _text(value: Any, maximum: int = 200) -> str | None:
@@ -176,6 +178,20 @@ class EnrichmentService:
                     aircraft.get("url_photo_thumbnail")
                 ),
             }
+            if values["photo_url"]:
+                values.update(
+                    {
+                        "photo_link": values["photo_url"],
+                        "photo_credit": None,
+                        "photo_source": "ADSBDB",
+                    }
+                )
+            else:
+                try:
+                    values.update(self._lookup_planespotters_photo(icao))
+                except Exception as exc:
+                    LOGGER.info("aircraft photo lookup failed for %s: %s", icao, exc)
+                    values["photo_source"] = "unavailable"
             self.database.save_aircraft_metadata(icao, values, "ok")
         except LookupError as exc:
             self.database.save_aircraft_metadata(icao, {}, "not_found", str(exc))
@@ -183,6 +199,36 @@ class EnrichmentService:
             self.database.save_aircraft_metadata(
                 icao, {}, "error", f"{type(exc).__name__}: {exc}"[:300]
             )
+
+    def _lookup_planespotters_photo(self, icao: str) -> dict[str, str | None]:
+        request = urllib.request.Request(
+            f"{PLANESPOTTERS_PHOTO_URL}/{urllib.parse.quote(icao)}",
+            headers={
+                "Accept": "application/json",
+                "User-Agent": PLANESPOTTERS_USER_AGENT,
+            },
+        )
+        with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+            body = response.read(1_000_001)
+        if len(body) > 1_000_000:
+            raise ValueError("photo response is too large")
+        payload = json.loads(body)
+        photos = payload.get("photos") if isinstance(payload, dict) else None
+        if not isinstance(photos, list) or not photos or not isinstance(photos[0], dict):
+            return {"photo_source": "none"}
+        photo = photos[0]
+        thumbnail = photo.get("thumbnail") if isinstance(photo.get("thumbnail"), dict) else {}
+        large = photo.get("thumbnail_large") if isinstance(photo.get("thumbnail_large"), dict) else {}
+        large_url = _https_url(large.get("src")) or _https_url(thumbnail.get("src"))
+        if not large_url:
+            return {"photo_source": "none"}
+        return {
+            "photo_url": large_url,
+            "photo_thumbnail_url": _https_url(thumbnail.get("src")) or large_url,
+            "photo_link": _https_url(photo.get("link")) or large_url,
+            "photo_credit": _text(photo.get("photographer"), 120),
+            "photo_source": "PlaneSpotters.net",
+        }
 
     def _lookup_route(self, callsign: str) -> None:
         try:
