@@ -529,12 +529,17 @@ async function playAircraftRadio(icao) {
   }
 }
 
-function setHardwareAircraft(icao) {
-  fetch("/api/v1/hardware/selection", {
+async function setHardwareAircraft(icao) {
+  try {
+    const response = await fetch("/api/v1/hardware/selection", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ icao }),
-  }).catch((error) => console.warn("Hardware aircraft selection failed", error));
+    });
+    if (!response.ok) console.warn("Hardware aircraft selection failed", response.status);
+  } catch (error) {
+    console.warn("Hardware aircraft selection failed", error);
+  }
 }
 
 function showToast(message) {
@@ -1229,6 +1234,8 @@ function connectLiveSocket() {
   socket.addEventListener("open", () => {
     if (socket !== state.socket) return;
     state.socketRetryAttempt = 0;
+    const selectedIcao = state.quickAircraftIcao || state.selectedIcao;
+    if (selectedIcao) setHardwareAircraft(selectedIcao);
   });
   socket.addEventListener("message", (event) => {
     if (socket !== state.socket) return;

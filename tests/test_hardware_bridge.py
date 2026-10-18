@@ -72,6 +72,7 @@ class HardwareBridgeTests(unittest.TestCase):
         source = MODULE_PATH.read_text(encoding="utf-8")
 
         self.assertIn('self.emit({"action": "dialogue_listening"})', source)
+        self.assertIn("post_event(self.stop_radio_endpoint, {})", source)
         self.assertIn('self.emit({"action": "dialogue_idle"})', source)
         self.assertIn('self.emit({"action": "dialogue_transcribing"})', source)
         self.assertIn('"action": "dialogue_answer"', source)

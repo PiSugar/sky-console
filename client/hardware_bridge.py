@@ -299,6 +299,7 @@ class Bridge:
     signal_path: str
     audio_meter_path: str
     dialogue_endpoint: str
+    stop_radio_endpoint: str
     capture_device: str
     hold_seconds: float
     joystick_x_sign: int
@@ -323,6 +324,12 @@ class Bridge:
             return
         self._button_pressed_at = time.monotonic()
         self._recording_path = f"/tmp/skytrace-question-{time.time_ns()}.wav"
+        self._listening.set()
+        self.emit({"action": "dialogue_listening"})
+        try:
+            post_event(self.stop_radio_endpoint, {})
+        except Exception as exc:
+            LOGGER.warning("pilot radio stop failed: %s", exc)
         try:
             self._recording_process = subprocess.Popen(
                 [
@@ -344,12 +351,11 @@ class Bridge:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-            self._listening.set()
-            self.emit({"action": "dialogue_listening"})
             LOGGER.info("pilot question recording started device=%s", self.capture_device)
         except OSError as exc:
             LOGGER.warning("question recording failed to start: %s", exc)
             self._recording_process = None
+            self._listening.clear()
             self.emit({"action": "dialogue_error", "message": "Microphone could not start"})
 
     def finish_question(self) -> None:
@@ -505,6 +511,10 @@ def main() -> None:
         dialogue_endpoint=os.getenv(
             "SKYTRACE_DIALOGUE_ENDPOINT",
             "http://127.0.0.1:38391/api/v1/hardware/dialogue",
+        ),
+        stop_radio_endpoint=os.getenv(
+            "SKYTRACE_STOP_RADIO_ENDPOINT",
+            "http://127.0.0.1:38391/api/v1/hardware/radio/stop",
         ),
         capture_device=os.getenv("SKYTRACE_CAPTURE_DEVICE", "plughw:2,0"),
         hold_seconds=float(os.getenv("SKYTRACE_BUTTON_HOLD_SECONDS", "0.7")),

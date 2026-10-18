@@ -189,6 +189,7 @@ class StaticAssetTests(unittest.TestCase):
 
         self.assertIn('fetch("/api/v1/hardware/selection"', script)
         self.assertIn("setHardwareAircraft(icao);", script)
+        self.assertIn("if (selectedIcao) setHardwareAircraft(selectedIcao);", script)
 
 
 if __name__ == "__main__":

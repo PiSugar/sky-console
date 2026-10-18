@@ -82,6 +82,7 @@ services:
     environment:
       SKYTRACE_HARDWARE_ENDPOINT: http://adsb-server:8080/api/v1/hardware/event
       SKYTRACE_DIALOGUE_ENDPOINT: http://adsb-server:8080/api/v1/hardware/dialogue
+      SKYTRACE_STOP_RADIO_ENDPOINT: http://adsb-server:8080/api/v1/hardware/radio/stop
       SKYTRACE_SIGNAL_PATH: /run/readsb/aircraft.json
       SKYTRACE_RADIO_METER_PATH: /run/skytrace/radio-meter
       SKYTRACE_CAPTURE_DEVICE: ${CAPTURE_AUDIO_DEVICE:-plughw:2,0}

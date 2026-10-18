@@ -34,6 +34,7 @@ from .live_store import LiveStore
 from .models import HardwareControlEvent, HardwareSelection, IngestBatch, PilotQuestion
 from .radio import (
     begin_radio_session,
+    cancel_radio_session,
     finish_radio_session,
     has_confirmed_route,
     is_radio_playing,
@@ -197,6 +198,17 @@ def hardware_selection(request: Request, selection: HardwareSelection) -> dict:
     global hardware_selected_icao
     hardware_selected_icao = selection.icao.upper()
     return {"selected": hardware_selected_icao}
+
+
+@app.post("/api/v1/hardware/radio/stop", include_in_schema=False)
+def hardware_stop_radio(request: Request) -> dict:
+    if not is_local_or_docker_request(request):
+        raise HTTPException(status_code=403, detail="local hardware only")
+    stopped_icao = cancel_radio_session()
+    if stopped_icao:
+        global hardware_selected_icao
+        hardware_selected_icao = stopped_icao
+    return {"stopped": bool(stopped_icao), "icao": stopped_icao}
 
 
 def play_pilot_dialogue(icao: str, aircraft: dict, answer: str) -> None:
@@ -462,6 +474,8 @@ def aircraft_radio(icao: str) -> dict:
     if not settings.radio_enabled:
         raise HTTPException(status_code=503, detail="radio playback disabled")
     normalized = normalize_icao(icao)
+    global hardware_selected_icao
+    hardware_selected_icao = normalized
     aircraft = _radio_aircraft_payload(normalized)
     if aircraft is None:
         raise HTTPException(status_code=404, detail="aircraft not found")

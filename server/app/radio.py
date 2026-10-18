@@ -174,6 +174,19 @@ def finish_radio_session(session: RadioSession) -> None:
             _current_session = None
 
 
+def cancel_radio_session() -> str | None:
+    """Stop the active pilot transmission and return its aircraft ICAO."""
+
+    global _current_session
+    with _session_lock:
+        session = _current_session
+        _current_session = None
+    if session is None:
+        return None
+    session.cancel()
+    return session.icao
+
+
 def is_radio_playing() -> bool:
     with _audio_lock:
         return _audio_playbacks > 0

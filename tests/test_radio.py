@@ -8,6 +8,7 @@ from array import array
 
 from server.app.radio import (
     begin_radio_session,
+    cancel_radio_session,
     finish_radio_session,
     is_radio_playing,
     radio_intro_text,
@@ -29,6 +30,13 @@ class RadioTests(unittest.TestCase):
             self.assertFalse(first.cancelled.is_set())
         finally:
             finish_radio_session(first)
+
+    def test_active_session_can_be_cancelled_for_push_to_talk(self) -> None:
+        session, _ = begin_radio_session("7823B7")
+
+        self.assertEqual(cancel_radio_session(), "7823B7")
+        self.assertTrue(session.cancelled.is_set())
+        self.assertIsNone(cancel_radio_session())
 
     def test_radio_text_uses_spoken_callsign_and_route(self) -> None:
         text = radio_text(
