@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import ipaddress
 import logging
 import subprocess
 import threading
+import urllib.error
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -26,9 +28,10 @@ from fastapi.staticfiles import StaticFiles
 from .config import Settings
 from .db import Database
 from .decoder import decode_mode_s
+from .dialogue import fixed_pilot_answer, ollama_pilot_answer, recognize_question
 from .enrichment import EnrichmentService
 from .live_store import LiveStore
-from .models import HardwareControlEvent, IngestBatch
+from .models import HardwareControlEvent, HardwareSelection, IngestBatch, PilotQuestion
 from .radio import (
     begin_radio_session,
     finish_radio_session,
@@ -83,6 +86,7 @@ def realtime_snapshot() -> dict:
 
 
 live_hub = LiveHub(realtime_snapshot, heartbeat_seconds=5.0)
+hardware_selected_icao: str | None = None
 
 
 @asynccontextmanager
@@ -101,7 +105,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="SkyTrace ADS-B",
-    version="1.4.2",
+    version="1.5.0",
     docs_url=None,
     redoc_url=None,
     lifespan=lifespan,
@@ -157,9 +161,22 @@ def normalize_icao(icao: str) -> str:
     return normalized
 
 
+def is_local_or_docker_request(request: Request) -> bool:
+    if request.client is None:
+        return False
+    try:
+        address = ipaddress.ip_address(request.client.host)
+    except ValueError:
+        return False
+    return address.is_loopback or (
+        isinstance(address, ipaddress.IPv4Address)
+        and address in ipaddress.ip_network("172.16.0.0/12")
+    )
+
+
 @app.post("/api/v1/kiosk/close", include_in_schema=False)
 def close_kiosk(request: Request, background_tasks: BackgroundTasks) -> dict:
-    if request.client is None or request.client.host not in {"127.0.0.1", "::1"}:
+    if not is_local_or_docker_request(request):
         raise HTTPException(status_code=403, detail="local kiosk only")
     background_tasks.add_task(close_kiosk_process)
     return {"closing": True}
@@ -167,15 +184,72 @@ def close_kiosk(request: Request, background_tasks: BackgroundTasks) -> dict:
 
 @app.post("/api/v1/hardware/event", include_in_schema=False)
 async def hardware_event(request: Request, event: HardwareControlEvent) -> dict:
-    if request.client is None or request.client.host not in {"127.0.0.1", "::1"}:
+    if not is_local_or_docker_request(request):
         raise HTTPException(status_code=403, detail="local hardware only")
     await live_hub.broadcast({"type": "hardware_control", **event.model_dump()})
     return {"accepted": True}
 
 
+@app.post("/api/v1/hardware/selection", include_in_schema=False)
+def hardware_selection(request: Request, selection: HardwareSelection) -> dict:
+    if not is_local_or_docker_request(request):
+        raise HTTPException(status_code=403, detail="local hardware only")
+    global hardware_selected_icao
+    hardware_selected_icao = selection.icao.upper()
+    return {"selected": hardware_selected_icao}
+
+
+@app.post("/api/v1/hardware/dialogue", include_in_schema=False)
+def hardware_dialogue(request: Request, question: PilotQuestion) -> dict:
+    if not is_local_or_docker_request(request):
+        raise HTTPException(status_code=403, detail="local hardware only")
+    icao = hardware_selected_icao
+    if not icao:
+        raise HTTPException(status_code=409, detail="select an aircraft first")
+    aircraft = _radio_aircraft_payload(icao)
+    if aircraft is None:
+        raise HTTPException(status_code=404, detail="selected aircraft is no longer available")
+    try:
+        transcript = recognize_question(settings.dialogue_asr_url, question.audio_base64)
+    except (OSError, urllib.error.URLError, ValueError) as exc:
+        logger.warning("pilot ASR failed: %s", exc)
+        transcript = ""
+    if not transcript:
+        answer = "I did not copy that. Please ask again."
+        mode = "fixed"
+    elif settings.dialogue_llm_enabled:
+        try:
+            answer = ollama_pilot_answer(
+                settings.dialogue_ollama_url,
+                settings.dialogue_ollama_model,
+                transcript,
+                aircraft,
+            )
+            mode = "llm"
+        except (OSError, urllib.error.URLError, ValueError) as exc:
+            logger.warning("pilot LLM failed, using fixed answer: %s", exc)
+            answer = fixed_pilot_answer(transcript, aircraft)
+            mode = "fixed-fallback"
+    else:
+        answer = fixed_pilot_answer(transcript, aircraft)
+        mode = "fixed"
+    session, _ = begin_radio_session(icao)
+    try:
+        result = _play_radio_segment(aircraft, session, "dialogue", answer, True)
+    finally:
+        finish_radio_session(session)
+    return {
+        "icao": icao,
+        "question": transcript,
+        "answer": answer,
+        "mode": mode,
+        "played": bool(result.get("played")),
+    }
+
+
 @app.get("/api/v1/hardware/status", include_in_schema=False)
 def hardware_status(request: Request) -> dict:
-    if request.client is None or request.client.host not in {"127.0.0.1", "::1"}:
+    if not is_local_or_docker_request(request):
         raise HTTPException(status_code=403, detail="local hardware only")
     live_data = live_store.snapshot() if settings.realtime_first else database.live_aircraft()
     return {
@@ -306,6 +380,8 @@ def _play_radio_segment(aircraft: dict, session, segment: str, text: str, chirp:
         audio_device=settings.radio_audio_device,
         tmp_dir=settings.radio_tmp_dir,
         chirp=chirp,
+        tts_http_url=settings.radio_tts_http_url,
+        tts_length_scale=settings.radio_tts_length_scale,
     )
     if result.get("played"):
         print(

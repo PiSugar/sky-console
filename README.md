@@ -31,9 +31,13 @@ RTL2832U / R820T USB 接收器
 
 ## 快速部署顺序
 
-1. 按 [群晖部署说明](DEPLOY_SYNOLOGY.md) 上传项目并执行 `sudo sh deploy-synology.sh`。
-2. 脚本会生成 `.env`、随机上报密钥和 `client.env`。
-3. 把生成的 `client.env` 与整个 `client` 目录复制到树莓派。
+当前树莓派版本使用根目录的 Docker Compose 统一部署。详见 [Docker 部署说明](DEPLOY_DOCKER.md)。Ollama + `gemma4:e2b` 为可选 profile；不开启时仍保留固定模板播报和长按问答。
+
+1. 执行 `cp .env.example .env`，至少修改 `INGEST_API_KEY`。
+2. 执行 `sudo docker compose build`。
+3. 执行 `sudo docker compose up -d`，通过 `sudo docker compose ps` 检查状态。
+
+群晖的独立服务端部署方式仍保留在 [群晖部署说明](DEPLOY_SYNOLOGY.md)。
 4. 按 [树莓派部署说明](DEPLOY_RASPBERRY_PI.md) 执行 `sh deploy-client.sh`。
 5. 打开 `https://hive.hahapiggy.vip:38391`。
 

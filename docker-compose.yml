@@ -1,54 +1,148 @@
 services:
   adsb-server:
-    build:
-      context: ./server
-    image: adsb-tracker-server:1.3.4
-    container_name: adsb-tracker-server
+    build: ./server
+    image: skytrace-server:1.5.0
     restart: unless-stopped
-    ports:
-      - "${PUBLIC_PORT:-38391}:8080"
+    ports: ["${PUBLIC_PORT:-38391}:8080"]
     environment:
-      DATABASE_PATH: ${DATABASE_PATH:-/data/adsb.sqlite3}
-      INGEST_API_KEY: ${INGEST_API_KEY:?INGEST_API_KEY must be set in .env}
-      RETENTION_HOURS: ${RETENTION_HOURS:-}
-      RETENTION_DAYS: ${RETENTION_DAYS:-90}
+      DATABASE_PATH: /data/adsb.sqlite3
+      INGEST_API_KEY: ${INGEST_API_KEY:?set INGEST_API_KEY in .env}
+      RETENTION_HOURS: ${RETENTION_HOURS:-2160}
       ACTIVE_SECONDS: ${ACTIVE_SECONDS:-90}
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://hive.hahapiggy.vip:38391}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://127.0.0.1:38391}
+      REALTIME_FIRST: "true"
+      STORE_RAW_MESSAGES: "false"
+      STORE_POSITIONS: "false"
+      ENRICHMENT_ON_DEMAND: "true"
       ENRICHMENT_ENABLED: ${ENRICHMENT_ENABLED:-true}
-      ENRICHMENT_BASE_URL: ${ENRICHMENT_BASE_URL:-https://api.adsbdb.com/v0}
-      ENRICHMENT_SUCCESS_HOURS: ${ENRICHMENT_SUCCESS_HOURS:-168}
-      ENRICHMENT_RETRY_HOURS: ${ENRICHMENT_RETRY_HOURS:-6}
-      ENRICHMENT_TIMEOUT_SECONDS: ${ENRICHMENT_TIMEOUT_SECONDS:-8}
-      RADIO_ENABLED: ${RADIO_ENABLED:-false}
-      RADIO_TTS_COMMAND: ${RADIO_TTS_COMMAND:-piper}
-      RADIO_VOICE_MODEL: ${RADIO_VOICE_MODEL:-/home/pi/piper/en_US-ryan-medium.onnx}
-      RADIO_VOICE_CONFIG: ${RADIO_VOICE_CONFIG:-/home/pi/piper/en_US-ryan-medium.onnx.json}
+      RADIO_ENABLED: "true"
       RADIO_AUDIO_DEVICE: ${RADIO_AUDIO_DEVICE:-plughw:2,0}
-      RADIO_TMP_DIR: ${RADIO_TMP_DIR:-/tmp}
+      RADIO_TMP_DIR: /tmp
+      RADIO_TTS_HTTP_URL: http://piper-http:8805
+      RADIO_TTS_LENGTH_SCALE: "1.0"
+      SKYTRACE_RADIO_METER_PATH: /run/skytrace/radio-meter
+      DIALOGUE_ASR_URL: http://faster-whisper:8803/recognize
+      DIALOGUE_LLM_ENABLED: ${DIALOGUE_LLM_ENABLED:-false}
+      DIALOGUE_OLLAMA_URL: http://ollama:11434
+      DIALOGUE_OLLAMA_MODEL: ${DIALOGUE_OLLAMA_MODEL:-gemma4:e2b}
     volumes:
-      - ../data/abs_d:/data
-      - ../SSL:/ssl:ro
-    command:
-      - uvicorn
-      - app.main:app
-      - --host
-      - 0.0.0.0
-      - --port
-      - "8080"
-      - --proxy-headers
-      - --forwarded-allow-ips
-      - "*"
-      - --ssl-keyfile
-      - /ssl/privkey.pem
-      - --ssl-certfile
-      - /ssl/fullchain.pem
+      - ./data:/data
+      - skytrace-runtime:/run/skytrace
+    devices: ["/dev/snd:/dev/snd"]
+    depends_on:
+      faster-whisper: {condition: service_healthy}
+      piper-http: {condition: service_healthy}
     healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - "import ssl,urllib.request; urllib.request.urlopen('https://127.0.0.1:8080/healthz', timeout=3, context=ssl._create_unverified_context())"
-      interval: 30s
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3)"]
+      interval: 15s
       timeout: 5s
-      retries: 3
-      start_period: 15s
+      retries: 5
+      start_period: 20s
+
+  adsb-client:
+    build: ./client
+    image: skytrace-client:1.5.0
+    restart: unless-stopped
+    environment:
+      SERVER_URL: http://adsb-server:8080
+      API_KEY: ${INGEST_API_KEY:?set INGEST_API_KEY in .env}
+      RECEIVER_ID: ${RECEIVER_ID:-devpn}
+      RECEIVER_NAME: ${RECEIVER_NAME:-DEVPN ADS-B}
+      RECEIVER_LAT: ${RECEIVER_LAT:-}
+      RECEIVER_LON: ${RECEIVER_LON:-}
+      UPLOAD_INTERVAL: "1"
+      ACTIVE_WINDOW: "120"
+      MAX_BATCH_MESSAGES: "2000"
+      MAX_SPOOL_BATCHES: "20"
+      SEND_RAW_MESSAGES: "false"
+      RTL_DEVICE: ${RTL_DEVICE:-0}
+      RTL_GAIN: ${RTL_GAIN:-49.6}
+      STATE_PATH: /run/readsb/aircraft.json
+      SPOOL_PATH: /data/spool.sqlite3
+      RAW_HOST: 127.0.0.1
+      RAW_PORT: "30002"
+    volumes:
+      - /dev/bus/usb:/dev/bus/usb
+      - ./data/client:/data
+      - readsb-state:/run/readsb
+    device_cgroup_rules: ["c 189:* rmw"]
+    depends_on:
+      adsb-server: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,time; assert time.time()-os.path.getmtime('/tmp/adsb-agent-health') < 30"]
+      interval: 20s
+      timeout: 5s
+      retries: 4
+      start_period: 45s
+
+  skytrace-hardware:
+    build: {context: ./client, dockerfile: hardware.Dockerfile}
+    image: skytrace-hardware:1.5.0
+    restart: unless-stopped
+    environment:
+      SKYTRACE_HARDWARE_ENDPOINT: http://adsb-server:8080/api/v1/hardware/event
+      SKYTRACE_DIALOGUE_ENDPOINT: http://adsb-server:8080/api/v1/hardware/dialogue
+      SKYTRACE_SIGNAL_PATH: /run/readsb/aircraft.json
+      SKYTRACE_RADIO_METER_PATH: /run/skytrace/radio-meter
+      SKYTRACE_CAPTURE_DEVICE: ${CAPTURE_AUDIO_DEVICE:-plughw:2,0}
+      SKYTRACE_BUTTON_HOLD_SECONDS: "0.7"
+      SKYTRACE_JOYSTICK_X_SIGN: "-1"
+      SKYTRACE_JOYSTICK_Y_SIGN: "-1"
+    devices:
+      - /dev/i2c-1:/dev/i2c-1
+      - /dev/gpiochip0:/dev/gpiochip0
+      - /dev/snd:/dev/snd
+    volumes:
+      - readsb-state:/run/readsb:ro
+      - skytrace-runtime:/run/skytrace:ro
+    depends_on:
+      adsb-server: {condition: service_healthy}
+      adsb-client: {condition: service_started}
+
+  faster-whisper:
+    build:
+      context: ./services/faster-whisper
+      args: {MODEL_SIZE: "${FASTER_WHISPER_MODEL:-tiny.en}"}
+    image: skytrace-faster-whisper:1.5.0
+    restart: unless-stopped
+    environment:
+      FASTER_WHISPER_MODEL: ${FASTER_WHISPER_MODEL:-tiny.en}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1',8803),3).close()"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+      start_period: 180s
+
+  piper-http:
+    build:
+      context: ./services/piper-http
+      args: {VOICE_NAME: "${PIPER_VOICE:-en_US-ryan-medium}"}
+    image: skytrace-piper-http:1.5.0
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1',8805),3).close()"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 60s
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    profiles: [llm]
+    environment: {OLLAMA_KEEP_ALIVE: "-1"}
+    volumes: ["ollama-data:/root/.ollama"]
+
+  ollama-model:
+    image: ollama/ollama:latest
+    profiles: [llm]
+    environment: {OLLAMA_HOST: "http://ollama:11434"}
+    entrypoint: ["sh", "-c", "until ollama list >/dev/null 2>&1; do sleep 2; done; ollama pull ${DIALOGUE_OLLAMA_MODEL:-gemma4:e2b}"]
+    depends_on: [ollama]
+    restart: "no"
+
+volumes:
+  readsb-state:
+  skytrace-runtime:
+  ollama-data:

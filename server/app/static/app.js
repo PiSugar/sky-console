@@ -427,6 +427,7 @@ function showAircraftQuickCard(icao) {
   window.clearTimeout(state.quickEnrichmentRefreshTimer);
   state.aircraftMarkers.get(state.quickAircraftIcao)?.getElement()?.classList.remove("is-quick-selected");
   state.quickAircraftIcao = icao;
+  setHardwareAircraft(icao);
   state.aircraftMarkers.get(icao)?.getElement()?.classList.add("is-quick-selected");
   renderAircraftQuickCard();
   refreshQuickCardEnrichment(icao);
@@ -502,6 +503,14 @@ async function playAircraftRadio(icao) {
   } catch (error) {
     console.warn("Aircraft radio playback skipped", error);
   }
+}
+
+function setHardwareAircraft(icao) {
+  fetch("/api/v1/hardware/selection", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ icao }),
+  }).catch((error) => console.warn("Hardware aircraft selection failed", error));
 }
 
 function showToast(message) {
@@ -1614,6 +1623,7 @@ async function openAircraft(icao, hours = state.detailHours) {
   hideAircraftQuickCard();
   window.clearTimeout(state.enrichmentRefreshTimer);
   state.selectedIcao = icao;
+  setHardwareAircraft(icao);
   state.detailHours = hours;
   state.messageCursor = null;
   elements.drawerBackdrop.hidden = false;

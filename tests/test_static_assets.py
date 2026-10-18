@@ -169,6 +169,12 @@ class StaticAssetTests(unittest.TestCase):
         self.assertNotIn("scale(", selected_rule.group("body"))
         self.assertNotIn("background: var(--green)", selected_rule.group("body"))
 
+    def test_selected_aircraft_is_shared_with_hardware_dialogue(self) -> None:
+        script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('fetch("/api/v1/hardware/selection"', script)
+        self.assertIn("setHardwareAircraft(icao);", script)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import array
 import hashlib
+import json
 import math
 import os
 import re
@@ -11,6 +12,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.request
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -366,6 +368,18 @@ def _audio_paths_for_segment(directory: str, segment: str) -> tuple[Path, Path, 
     )
 
 
+def _synthesize_http(url: str, text: str, output_path: Path, length_scale: float) -> None:
+    payload = json.dumps({"text": text, "length_scale": length_scale}).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        output_path.write_bytes(response.read())
+
+
 def play_radio_text(
     aircraft: dict[str, Any],
     text: str,
@@ -378,6 +392,8 @@ def play_radio_text(
     audio_device: str,
     tmp_dir: str,
     chirp: bool = False,
+    tts_http_url: str = "",
+    tts_length_scale: float = 1.0,
 ) -> dict[str, Any]:
     flight = (
         aircraft.get("route_callsign_iata")
@@ -423,30 +439,33 @@ def play_radio_text(
                     timeout=5,
                     audio_playback=True,
                 )
-            _run_cancelable(
-                [
-                    tts_command,
-                    "--model",
-                    model_path,
-                    "--config",
-                    config_path,
-                    "--output-file",
-                    str(raw_wav),
-                    "--length-scale",
-                    str(voice.length_scale),
-                    "--noise-scale",
-                    str(voice.noise_scale),
-                    "--noise-w-scale",
-                    str(voice.noise_w_scale),
-                    "--sentence-silence",
-                    "0.18",
-                    "--volume",
-                    str(voice.volume),
-                ],
-                session=session,
-                input_text=text,
-                timeout=20,
-            )
+            if tts_http_url:
+                _synthesize_http(tts_http_url, text, raw_wav, tts_length_scale)
+            else:
+                _run_cancelable(
+                    [
+                        tts_command,
+                        "--model",
+                        model_path,
+                        "--config",
+                        config_path,
+                        "--output-file",
+                        str(raw_wav),
+                        "--length-scale",
+                        str(voice.length_scale),
+                        "--noise-scale",
+                        str(voice.noise_scale),
+                        "--noise-w-scale",
+                        str(voice.noise_w_scale),
+                        "--sentence-silence",
+                        "0.18",
+                        "--volume",
+                        str(voice.volume),
+                    ],
+                    session=session,
+                    input_text=text,
+                    timeout=20,
+                )
             _run_cancelable(
                 [
                     "sox",

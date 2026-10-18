@@ -3,10 +3,13 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
+from pathlib import Path
 import struct
+import subprocess
 import threading
 import time
 import urllib.request
@@ -67,6 +70,19 @@ def post_event(endpoint: str, event: dict[str, object]) -> None:
     )
     with urllib.request.urlopen(request, timeout=0.8) as response:
         response.read()
+
+
+def post_audio_question(endpoint: str, audio_path: str) -> dict[str, object]:
+    audio_base64 = base64.b64encode(Path(audio_path).read_bytes()).decode("ascii")
+    payload = json.dumps({"audio_base64": audio_base64}).encode("utf-8")
+    request = urllib.request.Request(
+        endpoint,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=150) as response:
+        return json.load(response)
 
 
 def read_signal_active(path: str, active_window: float = 90.0) -> bool:
@@ -271,16 +287,91 @@ class Bridge:
     endpoint: str
     signal_path: str
     audio_meter_path: str
+    dialogue_endpoint: str
+    capture_device: str
+    hold_seconds: float
     joystick_x_sign: int
     joystick_y_sign: int
     scroll_sign: int
     deadzone: int
+
+    def __post_init__(self) -> None:
+        self._recording_process: subprocess.Popen[bytes] | None = None
+        self._recording_path: str | None = None
+        self._button_pressed_at = 0.0
 
     def emit(self, event: dict[str, object]) -> None:
         try:
             post_event(self.endpoint, event)
         except Exception as exc:
             LOGGER.warning("event delivery failed: %s", exc)
+
+    def begin_question(self) -> None:
+        if self._recording_process is not None:
+            return
+        self._button_pressed_at = time.monotonic()
+        self._recording_path = f"/tmp/skytrace-question-{time.time_ns()}.wav"
+        try:
+            self._recording_process = subprocess.Popen(
+                [
+                    "arecord",
+                    "-q",
+                    "-D",
+                    self.capture_device,
+                    "-f",
+                    "S16_LE",
+                    "-r",
+                    "16000",
+                    "-c",
+                    "1",
+                    self._recording_path,
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except OSError as exc:
+            LOGGER.warning("question recording failed to start: %s", exc)
+            self._recording_process = None
+
+    def finish_question(self) -> None:
+        held_seconds = time.monotonic() - self._button_pressed_at
+        process = self._recording_process
+        path = self._recording_path
+        self._recording_process = None
+        self._recording_path = None
+        if process is not None:
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=1)
+        if held_seconds < self.hold_seconds or not path or not Path(path).is_file():
+            if path:
+                Path(path).unlink(missing_ok=True)
+            self.emit({"action": "select_nearest"})
+            return
+        threading.Thread(
+            target=self.ask_pilot,
+            args=(path,),
+            name="skytrace-pilot-question",
+            daemon=True,
+        ).start()
+
+    def ask_pilot(self, path: str) -> None:
+        try:
+            result = post_audio_question(self.dialogue_endpoint, path)
+            LOGGER.info(
+                "pilot dialogue mode=%s question=%r answer=%r",
+                result.get("mode"),
+                result.get("question"),
+                result.get("answer"),
+            )
+        except Exception as exc:
+            LOGGER.warning("pilot dialogue failed: %s", exc)
+        finally:
+            Path(path).unlink(missing_ok=True)
 
     def run(self) -> None:
         from smbus2 import SMBus
@@ -341,7 +432,9 @@ class Bridge:
 
                     pressed = read_button(button)
                     if pressed and not previous_whisplay_button:
-                        self.emit({"action": "select_nearest"})
+                        self.begin_question()
+                    elif not pressed and previous_whisplay_button:
+                        self.finish_question()
                     previous_whisplay_button = pressed
 
                     remaining = 0.05 - (time.monotonic() - loop_started)
@@ -370,6 +463,12 @@ def main() -> None:
             "SKYTRACE_RADIO_METER_PATH",
             "/tmp/skytrace-radio-meter",
         ),
+        dialogue_endpoint=os.getenv(
+            "SKYTRACE_DIALOGUE_ENDPOINT",
+            "http://127.0.0.1:38391/api/v1/hardware/dialogue",
+        ),
+        capture_device=os.getenv("SKYTRACE_CAPTURE_DEVICE", "plughw:2,0"),
+        hold_seconds=float(os.getenv("SKYTRACE_BUTTON_HOLD_SECONDS", "0.7")),
         joystick_x_sign=int(os.getenv("SKYTRACE_JOYSTICK_X_SIGN", "-1")),
         joystick_y_sign=int(os.getenv("SKYTRACE_JOYSTICK_Y_SIGN", "-1")),
         scroll_sign=int(os.getenv("SKYTRACE_SCROLL_SIGN", "1")),

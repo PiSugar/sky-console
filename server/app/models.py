@@ -96,3 +96,15 @@ class HardwareControlEvent(BaseModel):
     x: float = Field(default=0.0, ge=-1.0, le=1.0)
     y: float = Field(default=0.0, ge=-1.0, le=1.0)
     delta: int = Field(default=0, ge=-8, le=8)
+
+
+class HardwareSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    icao: Icao
+
+
+class PilotQuestion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    audio_base64: str = Field(min_length=16, max_length=16 * 1024 * 1024)
