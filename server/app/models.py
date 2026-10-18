@@ -104,6 +104,7 @@ class HardwareControlEvent(BaseModel):
         "dialogue_error",
         "dialogue_unavailable",
         "dialogue_interrupted",
+        "photo_viewer_close",
     ]
     x: float = Field(default=0.0, ge=-1.0, le=1.0)
     y: float = Field(default=0.0, ge=-1.0, le=1.0)
@@ -118,6 +119,12 @@ class HardwareSelection(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     icao: Icao
+
+
+class PhotoViewerState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    active: bool
 
 
 class PilotQuestion(BaseModel):

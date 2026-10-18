@@ -146,6 +146,23 @@ class StaticAssetTests(unittest.TestCase):
         self.assertIn("overflow-wrap: anywhere", stylesheet)
         self.assertIn("white-space: normal", stylesheet)
 
+    def test_aircraft_photos_open_a_gesture_viewer(self) -> None:
+        script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+        index = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        stylesheet = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+        main_source = (PROJECT_DIR / "server" / "app" / "main.py").read_text(encoding="utf-8")
+
+        self.assertIn('id="photo-viewer"', index)
+        self.assertIn('data-photo-full="${escapeHtml(photoUrl)}"', script)
+        self.assertIn("function openPhotoViewer(url", script)
+        self.assertIn('addEventListener("pointermove"', script)
+        self.assertIn('addEventListener("wheel"', script)
+        self.assertIn("point.y - point.startY > 90", script)
+        self.assertIn('message.action === "photo_viewer_close"', script)
+        self.assertIn(".photo-viewer-stage", stylesheet)
+        self.assertIn("touch-action: none", stylesheet)
+        self.assertIn('/api/v1/hardware/photo-viewer', main_source)
+
     def test_aircraft_detail_exposes_coordinate_verification(self) -> None:
         script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
 

@@ -322,6 +322,7 @@ class Bridge:
         self._question_blocked = False
         self._question_block_message = ""
         self._question_block_notified = False
+        self._question_consumed = False
         self._question_interrupted = False
         self._question_generation = 0
         self._recording_aircraft_icao = ""
@@ -341,6 +342,7 @@ class Bridge:
         self._question_blocked = False
         self._question_block_message = ""
         self._question_block_notified = False
+        self._question_consumed = False
         self._question_interrupted = False
         self._question_generation += 1
         generation = self._question_generation
@@ -355,6 +357,7 @@ class Bridge:
             }
         if not status.get("ready"):
             self._question_blocked = True
+            self._question_consumed = status.get("reason") == "photo_viewer"
             self._question_block_message = str(
                 status.get("message") or "No aircraft are currently available"
             )
@@ -464,7 +467,9 @@ class Bridge:
         if self._question_blocked:
             held_seconds = time.monotonic() - self._button_pressed_at
             self._question_blocked = False
-            if held_seconds < self.hold_seconds:
+            if self._question_consumed:
+                self._question_consumed = False
+            elif held_seconds < self.hold_seconds:
                 self.emit({"action": "select_nearest"})
             elif not self._question_block_notified:
                 self.emit(

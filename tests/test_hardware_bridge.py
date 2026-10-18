@@ -182,3 +182,34 @@ class HardwareBridgeTests(unittest.TestCase):
         self.assertFalse(bridge._listening.is_set())
         self.assertTrue(bridge._question_interrupted)
         self.assertEqual(emit.call_args.args[0]["action"], "dialogue_interrupted")
+
+    def test_whisplay_press_only_closes_active_photo_viewer(self) -> None:
+        bridge = hardware_bridge.Bridge(
+            endpoint="http://server/event",
+            signal_path="/tmp/aircraft.json",
+            audio_meter_path="/tmp/radio-meter",
+            dialogue_endpoint="http://server/dialogue",
+            stop_radio_endpoint="http://server/radio/stop",
+            dialogue_status_endpoint="http://server/dialogue/status",
+            capture_device="plughw:2,0",
+            hold_seconds=0.7,
+            joystick_x_sign=-1,
+            joystick_y_sign=-1,
+            scroll_sign=1,
+            deadzone=18,
+        )
+        with mock.patch.object(
+            hardware_bridge,
+            "post_event",
+            return_value={
+                "ready": False,
+                "reason": "photo_viewer",
+                "viewer_closed": True,
+                "message": "Photo viewer closed",
+            },
+        ) as post:
+            bridge.begin_question()
+            bridge.finish_question()
+
+        self.assertEqual(post.call_count, 1)
+        self.assertFalse(bridge._question_blocked)

@@ -44,6 +44,11 @@ const state = {
   dialogueWordTimer: null,
   lastDialogueAnswerKey: "",
   lastDialogueAnswerAt: 0,
+  photoViewerScale: 1,
+  photoViewerX: 0,
+  photoViewerY: 0,
+  photoViewerPointers: new Map(),
+  photoViewerDragged: false,
 };
 
 const elements = {
@@ -69,6 +74,10 @@ const elements = {
   dialogueStatusText: document.querySelector("#dialogue-status-text"),
   kioskStats: document.querySelector("#kiosk-stats"),
   kioskClose: document.querySelector("#kiosk-close"),
+  photoViewer: document.querySelector("#photo-viewer"),
+  photoViewerStage: document.querySelector("#photo-viewer-stage"),
+  photoViewerImage: document.querySelector("#photo-viewer-image"),
+  photoViewerClose: document.querySelector("#photo-viewer-close"),
 };
 
 const numberFormatter = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
@@ -388,7 +397,7 @@ function renderAircraftQuickCard() {
       <button type="button" data-quick-close aria-label="Close quick information">×</button>
     </div>
     <div class="quick-card-body">
-      ${photoUrl ? `<a class="quick-card-photo" href="${escapeHtml(photoLink)}" target="_blank" rel="noopener noreferrer" aria-label="Open aircraft photo"><img src="${escapeHtml(photoThumbnailUrl)}" alt="Real photo of ${escapeHtml(flightLabel(aircraft))}" />${photoSource ? `<small>${escapeHtml(photoCredit ? `© ${photoCredit} · ${photoSource}` : photoSource)}</small>` : ""}</a>` : ""}
+      ${photoUrl ? `<a class="quick-card-photo" href="${escapeHtml(photoLink)}" data-photo-full="${escapeHtml(photoUrl)}" target="_blank" rel="noopener noreferrer" aria-label="Open aircraft photo"><img src="${escapeHtml(photoThumbnailUrl)}" alt="Real photo of ${escapeHtml(flightLabel(aircraft))}" />${photoSource ? `<small>${escapeHtml(photoCredit ? `© ${photoCredit} · ${photoSource}` : photoSource)}</small>` : ""}</a>` : ""}
       <div class="quick-card-identification">
         <b class="${airlineLoading ? "is-loading" : ""}">${airlineLoading ? "<i></i>" : ""}${escapeHtml(airlineText)}</b>
         <span>${escapeHtml(registration)} · ${escapeHtml(model)}</span>
@@ -1230,6 +1239,61 @@ function positionDialogueStatus() {
   elements.dialogueStatus.style.bottom = `${cardHeight + 16}px`;
 }
 
+function photoViewerIsOpen() {
+  return Boolean(elements.photoViewer && !elements.photoViewer.hidden);
+}
+
+function syncPhotoViewerState(active) {
+  fetch("/api/v1/hardware/photo-viewer", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ active }),
+  }).catch((error) => console.warn("Photo viewer state sync failed", error));
+}
+
+function applyPhotoViewerTransform(animate = false) {
+  if (!elements.photoViewerImage) return;
+  elements.photoViewerImage.style.transition = animate ? "transform 180ms ease" : "none";
+  elements.photoViewerImage.style.transform = `translate3d(${state.photoViewerX}px, ${state.photoViewerY}px, 0) scale(${state.photoViewerScale})`;
+}
+
+function resetPhotoViewerTransform(animate = false) {
+  state.photoViewerScale = 1;
+  state.photoViewerX = 0;
+  state.photoViewerY = 0;
+  state.photoViewerPointers.clear();
+  state.photoViewerDragged = false;
+  applyPhotoViewerTransform(animate);
+}
+
+function openPhotoViewer(url, alt = "Aircraft photo") {
+  if (!elements.photoViewer || !elements.photoViewerImage || !url) return;
+  resetPhotoViewerTransform();
+  elements.photoViewerImage.src = url;
+  elements.photoViewerImage.alt = alt;
+  elements.photoViewer.hidden = false;
+  document.body.classList.add("photo-viewer-open");
+  syncPhotoViewerState(true);
+}
+
+function closePhotoViewer(syncHardware = true) {
+  if (!photoViewerIsOpen()) return;
+  elements.photoViewer.hidden = true;
+  document.body.classList.remove("photo-viewer-open");
+  elements.photoViewerImage.removeAttribute("src");
+  resetPhotoViewerTransform();
+  if (syncHardware) syncPhotoViewerState(false);
+}
+
+function setPhotoViewerScale(nextScale) {
+  state.photoViewerScale = Math.max(1, Math.min(5, nextScale));
+  if (state.photoViewerScale === 1) {
+    state.photoViewerX = 0;
+    state.photoViewerY = 0;
+  }
+  applyPhotoViewerTransform();
+}
+
 function handleDialogueControl(message) {
   if (message.action === "dialogue_idle") {
     window.clearTimeout(state.dialogueStatusTimer);
@@ -1253,6 +1317,14 @@ function handleDialogueControl(message) {
 }
 
 function handleHardwareControl(message) {
+  if (message.action === "photo_viewer_close") {
+    closePhotoViewer(false);
+    return;
+  }
+  if (photoViewerIsOpen()) {
+    closePhotoViewer();
+    return;
+  }
   if (String(message.action || "").startsWith("dialogue_")) {
     handleDialogueControl(message);
     return;
@@ -1400,7 +1472,7 @@ function enrichmentMarkup(aircraft) {
       <div class="enrichment-grid">
         <article class="enrichment-card">
           <span class="card-kicker">AIRCRAFT</span>
-          ${photoUrl ? `<a class="aircraft-photo" href="${escapeHtml(photoLink)}" target="_blank" rel="noopener noreferrer" aria-label="Open aircraft photo"><img src="${escapeHtml(photoThumbnailUrl)}" alt="Real photo of ${escapeHtml(flightLabel(aircraft))}" loading="lazy" />${photoSource ? `<small>${escapeHtml(photoCredit ? `Photo © ${photoCredit} · ${photoSource}` : `Photo: ${photoSource}`)}</small>` : ""}</a>` : ""}
+          ${photoUrl ? `<a class="aircraft-photo" href="${escapeHtml(photoLink)}" data-photo-full="${escapeHtml(photoUrl)}" target="_blank" rel="noopener noreferrer" aria-label="Open aircraft photo"><img src="${escapeHtml(photoThumbnailUrl)}" alt="Real photo of ${escapeHtml(flightLabel(aircraft))}" loading="lazy" />${photoSource ? `<small>${escapeHtml(photoCredit ? `Photo © ${photoCredit} · ${photoSource}` : `Photo: ${photoSource}`)}</small>` : ""}</a>` : ""}
           ${hasAircraftData ? `
             <strong>${escapeHtml(aircraftDescription(aircraft))}</strong>
             <dl class="info-rows">
@@ -1788,6 +1860,114 @@ function closeDrawer() {
   }
   state.trackPositions = [];
 }
+
+document.addEventListener("click", (event) => {
+  const photoLink = event.target.closest?.(".quick-card-photo, .aircraft-photo");
+  if (!photoLink) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const image = photoLink.querySelector("img");
+  openPhotoViewer(photoLink.dataset.photoFull || image?.src || photoLink.href, image?.alt);
+}, true);
+
+elements.photoViewerClose.addEventListener("click", () => closePhotoViewer());
+elements.photoViewer.addEventListener("click", (event) => {
+  if (event.target === elements.photoViewer || event.target === elements.photoViewerStage) {
+    closePhotoViewer();
+  }
+});
+
+elements.photoViewerStage.addEventListener("wheel", (event) => {
+  event.preventDefault();
+  setPhotoViewerScale(state.photoViewerScale * (event.deltaY < 0 ? 1.18 : 0.85));
+}, { passive: false });
+
+elements.photoViewerStage.addEventListener("dblclick", (event) => {
+  event.preventDefault();
+  setPhotoViewerScale(state.photoViewerScale > 1 ? 1 : 2);
+});
+
+elements.photoViewerStage.addEventListener("pointerdown", (event) => {
+  event.preventDefault();
+  elements.photoViewerStage.setPointerCapture(event.pointerId);
+  state.photoViewerPointers.set(event.pointerId, {
+    x: event.clientX,
+    y: event.clientY,
+    startX: event.clientX,
+    startY: event.clientY,
+  });
+  if (state.photoViewerPointers.size === 1) state.photoViewerDragged = false;
+});
+
+elements.photoViewerStage.addEventListener("pointermove", (event) => {
+  const point = state.photoViewerPointers.get(event.pointerId);
+  if (!point) return;
+  event.preventDefault();
+  const previousPoints = [...state.photoViewerPointers.values()].map((item) => ({ ...item }));
+  const deltaX = event.clientX - point.x;
+  const deltaY = event.clientY - point.y;
+  point.x = event.clientX;
+  point.y = event.clientY;
+
+  if (state.photoViewerPointers.size === 1) {
+    const totalY = point.y - point.startY;
+    const totalX = point.x - point.startX;
+    if (Math.abs(totalX) + Math.abs(totalY) > 5) state.photoViewerDragged = true;
+    if (state.photoViewerScale <= 1.01) {
+      state.photoViewerY = Math.max(0, totalY);
+      state.photoViewerX = 0;
+    } else {
+      state.photoViewerX += deltaX;
+      state.photoViewerY += deltaY;
+    }
+    applyPhotoViewerTransform();
+    return;
+  }
+
+  if (state.photoViewerPointers.size === 2 && previousPoints.length === 2) {
+    const currentPoints = [...state.photoViewerPointers.values()];
+    const previousDistance = Math.hypot(
+      previousPoints[0].x - previousPoints[1].x,
+      previousPoints[0].y - previousPoints[1].y,
+    );
+    const currentDistance = Math.hypot(
+      currentPoints[0].x - currentPoints[1].x,
+      currentPoints[0].y - currentPoints[1].y,
+    );
+    if (previousDistance > 0) {
+      state.photoViewerScale = Math.max(1, Math.min(5, state.photoViewerScale * currentDistance / previousDistance));
+    }
+    const previousCenterX = (previousPoints[0].x + previousPoints[1].x) / 2;
+    const previousCenterY = (previousPoints[0].y + previousPoints[1].y) / 2;
+    const currentCenterX = (currentPoints[0].x + currentPoints[1].x) / 2;
+    const currentCenterY = (currentPoints[0].y + currentPoints[1].y) / 2;
+    state.photoViewerX += currentCenterX - previousCenterX;
+    state.photoViewerY += currentCenterY - previousCenterY;
+    applyPhotoViewerTransform();
+  }
+});
+
+const finishPhotoPointer = (event) => {
+  const point = state.photoViewerPointers.get(event.pointerId);
+  const swipeDown = state.photoViewerScale <= 1.01
+    && point
+    && point.y - point.startY > 90
+    && Math.abs(point.y - point.startY) > Math.abs(point.x - point.startX) * 1.2;
+  state.photoViewerPointers.delete(event.pointerId);
+  if (swipeDown) {
+    closePhotoViewer();
+    return;
+  }
+  if (!state.photoViewerPointers.size && state.photoViewerScale <= 1.01) {
+    resetPhotoViewerTransform(true);
+  }
+};
+elements.photoViewerStage.addEventListener("pointerup", finishPhotoPointer);
+elements.photoViewerStage.addEventListener("pointercancel", finishPhotoPointer);
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && photoViewerIsOpen()) closePhotoViewer();
+});
 
 document.querySelectorAll(".nav-button").forEach((button) => button.addEventListener("click", () => switchView(button.dataset.view)));
 document.querySelector("#fit-map").addEventListener("click", fitMap);

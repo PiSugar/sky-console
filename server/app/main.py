@@ -30,7 +30,13 @@ from .decoder import decode_mode_s
 from .dialogue import fixed_pilot_answer, ollama_pilot_answer, recognize_question
 from .enrichment import EnrichmentService
 from .live_store import LiveStore
-from .models import HardwareControlEvent, HardwareSelection, IngestBatch, PilotQuestion
+from .models import (
+    HardwareControlEvent,
+    HardwareSelection,
+    IngestBatch,
+    PhotoViewerState,
+    PilotQuestion,
+)
 from .radio import (
     begin_radio_session,
     cancel_radio_session,
@@ -87,6 +93,7 @@ def realtime_snapshot() -> dict:
 
 live_hub = LiveHub(realtime_snapshot, heartbeat_seconds=5.0)
 hardware_selected_icao: str | None = None
+hardware_photo_viewer_active = False
 
 
 def hardware_dialogue_status() -> tuple[str | None, str, str]:
@@ -213,10 +220,34 @@ def hardware_selection(request: Request, selection: HardwareSelection) -> dict:
     return {"selected": hardware_selected_icao}
 
 
-@app.post("/api/v1/hardware/radio/stop", include_in_schema=False)
-def hardware_stop_radio(request: Request) -> dict:
+@app.post("/api/v1/hardware/photo-viewer", include_in_schema=False)
+def hardware_photo_viewer(request: Request, viewer: PhotoViewerState) -> dict:
     if not is_local_or_docker_request(request):
         raise HTTPException(status_code=403, detail="local hardware only")
+    global hardware_photo_viewer_active
+    hardware_photo_viewer_active = viewer.active
+    return {"active": hardware_photo_viewer_active}
+
+
+@app.post("/api/v1/hardware/radio/stop", include_in_schema=False)
+async def hardware_stop_radio(request: Request) -> dict:
+    if not is_local_or_docker_request(request):
+        raise HTTPException(status_code=403, detail="local hardware only")
+    global hardware_photo_viewer_active
+    if hardware_photo_viewer_active:
+        hardware_photo_viewer_active = False
+        await live_hub.broadcast(
+            {"type": "hardware_control", "action": "photo_viewer_close"}
+        )
+        return {
+            "stopped": False,
+            "icao": None,
+            "ready": False,
+            "selected": None,
+            "message": "Photo viewer closed",
+            "reason": "photo_viewer",
+            "viewer_closed": True,
+        }
     stopped_icao = cancel_radio_session()
     if stopped_icao:
         global hardware_selected_icao
