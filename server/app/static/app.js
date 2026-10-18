@@ -710,7 +710,6 @@ function initMap() {
   // Re-enable input handlers before Leaflet handles the same event. This also
   // protects the map from browser lifecycle edge cases on mobile.
   mapElement.addEventListener("pointerdown", () => {
-    releaseAircraftFollow(true);
     if (!state.map.dragging.enabled()) state.map.dragging.enable();
   }, { capture: true, passive: true });
   mapElement.addEventListener("wheel", () => {
@@ -749,6 +748,7 @@ function initMap() {
   };
   state.map.on("movestart", beginInteraction);
   state.map.on("moveend", endInteraction);
+  state.map.on("dragstart", () => releaseAircraftFollow(true));
   state.map.on("zoomstart", beginZoom);
   state.map.on("zoomend", endZoom);
   state.map.on("click", hideAircraftQuickCard);

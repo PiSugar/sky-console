@@ -90,16 +90,16 @@ live_hub = LiveHub(realtime_snapshot, heartbeat_seconds=5.0)
 hardware_selected_icao: str | None = None
 
 
-def hardware_dialogue_status() -> tuple[str | None, str]:
+def hardware_dialogue_status() -> tuple[str | None, str, str]:
     active_aircraft = live_snapshot().get("aircraft", [])
     if not active_aircraft:
-        return None, "No aircraft are currently available. Wait for an aircraft signal."
+        return None, "No aircraft are currently available. Wait for an aircraft signal.", "no_aircraft"
     selected = hardware_selected_icao
     if not selected:
-        return None, "Select an aircraft before speaking to the pilot."
+        return None, "Select an aircraft before speaking to the pilot.", "selection_required"
     if not any(str(item.get("icao", "")).upper() == selected for item in active_aircraft):
-        return None, "The selected aircraft is no longer available. Select another aircraft."
-    return selected, ""
+        return None, "The selected aircraft is no longer available. Select another aircraft.", "selection_required"
+    return selected, "", "ready"
 
 
 @asynccontextmanager
@@ -220,13 +220,14 @@ def hardware_stop_radio(request: Request) -> dict:
     if stopped_icao:
         global hardware_selected_icao
         hardware_selected_icao = stopped_icao
-    selected_icao, message = hardware_dialogue_status()
+    selected_icao, message, reason = hardware_dialogue_status()
     return {
         "stopped": bool(stopped_icao),
         "icao": stopped_icao,
         "ready": bool(selected_icao),
         "selected": selected_icao,
         "message": message,
+        "reason": reason,
     }
 
 
@@ -258,7 +259,7 @@ def hardware_dialogue(
 ) -> dict:
     if not is_local_or_docker_request(request):
         raise HTTPException(status_code=403, detail="local hardware only")
-    icao, unavailable_message = hardware_dialogue_status()
+    icao, unavailable_message, _ = hardware_dialogue_status()
     if not icao:
         raise HTTPException(status_code=409, detail=unavailable_message)
     aircraft = _radio_aircraft_payload(icao)

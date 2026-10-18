@@ -99,7 +99,11 @@ class HardwareBridgeTests(unittest.TestCase):
                 hardware_bridge,
                 "post_event",
                 side_effect=[
-                    {"ready": False, "message": "No aircraft are currently available"},
+                    {
+                        "ready": False,
+                        "message": "No aircraft are currently available",
+                        "reason": "no_aircraft",
+                    },
                     {"accepted": True},
                 ],
             ) as post,
@@ -111,3 +115,35 @@ class HardwareBridgeTests(unittest.TestCase):
         self.assertTrue(bridge._question_blocked)
         self.assertFalse(bridge._listening.is_set())
         self.assertEqual(post.call_args_list[-1].args[1]["action"], "dialogue_unavailable")
+
+    def test_short_press_without_selection_still_selects_nearest_aircraft(self) -> None:
+        bridge = hardware_bridge.Bridge(
+            endpoint="http://server/event",
+            signal_path="/tmp/aircraft.json",
+            audio_meter_path="/tmp/radio-meter",
+            dialogue_endpoint="http://server/dialogue",
+            stop_radio_endpoint="http://server/radio/stop",
+            capture_device="plughw:2,0",
+            hold_seconds=0.7,
+            joystick_x_sign=-1,
+            joystick_y_sign=-1,
+            scroll_sign=1,
+            deadzone=18,
+        )
+        with mock.patch.object(
+            hardware_bridge,
+            "post_event",
+            side_effect=[
+                {
+                    "ready": False,
+                    "message": "Select an aircraft before speaking to the pilot.",
+                    "reason": "selection_required",
+                },
+                {"accepted": True},
+            ],
+        ) as post:
+            bridge.begin_question()
+            bridge.finish_question()
+
+        self.assertEqual(post.call_args_list[-1].args[1]["action"], "select_nearest")
+        self.assertFalse(bridge._question_blocked)

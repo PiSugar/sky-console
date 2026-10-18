@@ -104,6 +104,8 @@ class StaticAssetTests(unittest.TestCase):
         self.assertIn('message.action === "toggle_follow"', script)
         self.assertIn("function toggleAircraftFollow()", script)
         self.assertIn("function releaseAircraftFollow(notify = false)", script)
+        self.assertIn('state.map.on("dragstart", () => releaseAircraftFollow(true))', script)
+        self.assertNotIn('mapElement.addEventListener("pointerdown", () => {\n    releaseAircraftFollow(true);', script)
         self.assertIn("state.map.panTo(aircraftFocusCenter(followedMarker.getLatLng())", script)
         self.assertIn('id="map-follow-status"', (STATIC_DIR / "index.html").read_text(encoding="utf-8"))
         self.assertIn(".map-follow-status", stylesheet)

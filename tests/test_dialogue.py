@@ -37,6 +37,9 @@ class PilotDialogueTests(unittest.TestCase):
         self.assertTrue(any(word in answer.lower() for word in ("airplane", "pilot", "wing")))
 
     def test_unknown_request_gets_a_humorous_refusal(self) -> None:
-        answer = fixed_pilot_answer("Explain quantum gravity", AIRCRAFT)
-        self.assertIn("cockpit", answer.lower())
-        self.assertIn("coffee", answer.lower())
+        answers = {
+            fixed_pilot_answer("Explain quantum gravity", AIRCRAFT)
+            for _ in range(4)
+        }
+        self.assertEqual(len(answers), 4)
+        self.assertTrue(all(len(answer) > 20 for answer in answers))

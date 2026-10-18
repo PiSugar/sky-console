@@ -2,8 +2,25 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import urllib.request
+from collections import defaultdict
 from typing import Any
+
+
+_reply_positions: defaultdict[str, int] = defaultdict(int)
+_reply_lock = threading.Lock()
+
+
+def varied_reply(category: str, identity: str, replies: tuple[str, ...]) -> str:
+    """Rotate natural fallback lines so repeated unknown questions do not sound robotic."""
+
+    key = f"{category}:{identity}"
+    with _reply_lock:
+        position = _reply_positions[key]
+        _reply_positions[key] += 1
+    offset = sum(ord(character) for character in identity) % len(replies)
+    return replies[(offset + position) % len(replies)]
 
 
 def recognize_question(asr_url: str, audio_base64: str) -> str:
@@ -52,7 +69,7 @@ def fixed_pilot_answer(question: str, aircraft: dict[str, Any]) -> str:
             "Pilot joke incoming: I asked the runway for some space. It told me to take off. Tough crowd up here.",
             "Why are pilots so calm? Because we know how to wing it. Please keep the applause below cruising altitude.",
         )
-        return jokes[sum(ord(character) for character in str(callsign)) % len(jokes)]
+        return varied_reply("joke", str(callsign), jokes)
     if re.search(r"\b(hello|hi|hey|good morning|good evening)\b", query):
         return f"Hello from the flight deck of {callsign}. Nice to have some company up here."
     if re.search(r"\b(how are you|how.*going|how.*doing)\b", query):
@@ -78,7 +95,18 @@ def fixed_pilot_answer(question: str, aircraft: dict[str, Any]) -> str:
         return f"We're {motion} at {abs(int(vertical_rate)):,} feet per minute."
     if re.search(r"\b(who|callsign|flight)\b", query):
         return f"This is the flight deck of {callsign}."
-    return "That one's outside my cockpit briefing. Ask me about the flight—or try a joke before the coffee gets cold."
+    return varied_reply(
+        "unknown",
+        str(callsign),
+        (
+            "That one's outside my cockpit briefing. Ask me about the flight—or try a joke before the coffee gets cold.",
+            "I didn't pack that answer in the flight bag. I can tell you what this aircraft is doing, though.",
+            "That's above my conversational ceiling today. Try me on altitude, speed, heading, or our route.",
+            "My instruments are excellent; my encyclopedia is still on the ground. How about a question about the flight?",
+            "I may have to hand that one to the cabin crew. Up here, I can help with the aircraft and our journey.",
+            "Unable on that request—but ask me where we're going and I'll point the nose in the right direction.",
+        ),
+    )
 
 
 def ollama_pilot_answer(url: str, model: str, question: str, aircraft: dict[str, Any]) -> str:

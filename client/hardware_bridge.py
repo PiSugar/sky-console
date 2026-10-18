@@ -313,6 +313,8 @@ class Bridge:
         self._recording_path: str | None = None
         self._button_pressed_at = 0.0
         self._question_blocked = False
+        self._question_block_message = ""
+        self._question_block_notified = False
         self._listening = threading.Event()
 
     def emit(self, event: dict[str, object]) -> None:
@@ -326,19 +328,30 @@ class Bridge:
             return
         self._button_pressed_at = time.monotonic()
         self._question_blocked = False
+        self._question_block_message = ""
+        self._question_block_notified = False
         try:
             status = post_event(self.stop_radio_endpoint, {})
         except Exception as exc:
             LOGGER.warning("pilot radio stop failed: %s", exc)
-            status = {"ready": False, "message": "Aircraft status is unavailable"}
+            status = {
+                "ready": False,
+                "message": "Aircraft status is unavailable",
+                "reason": "unavailable",
+            }
         if not status.get("ready"):
             self._question_blocked = True
-            self.emit(
-                {
-                    "action": "dialogue_unavailable",
-                    "message": str(status.get("message") or "No aircraft are currently available"),
-                }
+            self._question_block_message = str(
+                status.get("message") or "No aircraft are currently available"
             )
+            if status.get("reason") == "no_aircraft":
+                self.emit(
+                    {
+                        "action": "dialogue_unavailable",
+                        "message": self._question_block_message,
+                    }
+                )
+                self._question_block_notified = True
             return
         self._recording_path = f"/tmp/skytrace-question-{time.time_ns()}.wav"
         self._listening.set()
@@ -373,7 +386,19 @@ class Bridge:
 
     def finish_question(self) -> None:
         if self._question_blocked:
+            held_seconds = time.monotonic() - self._button_pressed_at
             self._question_blocked = False
+            if held_seconds < self.hold_seconds:
+                self.emit({"action": "select_nearest"})
+            elif not self._question_block_notified:
+                self.emit(
+                    {
+                        "action": "dialogue_unavailable",
+                        "message": self._question_block_message,
+                    }
+                )
+            self._question_block_message = ""
+            self._question_block_notified = False
             return
         held_seconds = time.monotonic() - self._button_pressed_at
         process = self._recording_process
