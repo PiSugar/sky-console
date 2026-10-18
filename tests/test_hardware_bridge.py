@@ -6,6 +6,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 MODULE_PATH = Path(__file__).parents[1] / "client" / "hardware_bridge.py"
@@ -72,7 +73,41 @@ class HardwareBridgeTests(unittest.TestCase):
         source = MODULE_PATH.read_text(encoding="utf-8")
 
         self.assertIn('self.emit({"action": "dialogue_listening"})', source)
-        self.assertIn("post_event(self.stop_radio_endpoint, {})", source)
+        self.assertIn("status = post_event(self.stop_radio_endpoint, {})", source)
+        self.assertIn('"action": "dialogue_unavailable"', source)
+        self.assertIn("if not status.get(\"ready\")", source)
         self.assertIn('self.emit({"action": "dialogue_idle"})', source)
         self.assertIn('self.emit({"action": "dialogue_transcribing"})', source)
         self.assertIn('"action": "dialogue_answer"', source)
+
+    def test_unavailable_aircraft_does_not_start_recording(self) -> None:
+        bridge = hardware_bridge.Bridge(
+            endpoint="http://server/event",
+            signal_path="/tmp/aircraft.json",
+            audio_meter_path="/tmp/radio-meter",
+            dialogue_endpoint="http://server/dialogue",
+            stop_radio_endpoint="http://server/radio/stop",
+            capture_device="plughw:2,0",
+            hold_seconds=0.7,
+            joystick_x_sign=-1,
+            joystick_y_sign=-1,
+            scroll_sign=1,
+            deadzone=18,
+        )
+        with (
+            mock.patch.object(
+                hardware_bridge,
+                "post_event",
+                side_effect=[
+                    {"ready": False, "message": "No aircraft are currently available"},
+                    {"accepted": True},
+                ],
+            ) as post,
+            mock.patch.object(hardware_bridge.subprocess, "Popen") as popen,
+        ):
+            bridge.begin_question()
+
+        popen.assert_not_called()
+        self.assertTrue(bridge._question_blocked)
+        self.assertFalse(bridge._listening.is_set())
+        self.assertEqual(post.call_args_list[-1].args[1]["action"], "dialogue_unavailable")

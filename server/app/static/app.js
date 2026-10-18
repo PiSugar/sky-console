@@ -1198,6 +1198,8 @@ function handleDialogueControl(message) {
     showDialogueStatus("answer", question ? `YOU: ${question}` : "PILOT RESPONSE", `PILOT: ${answer}`, Math.min(20000, Math.max(7000, words * 520)));
   } else if (message.action === "dialogue_error") {
     showDialogueStatus("error", "Unable to contact pilot", String(message.message || "Please try again."), 6000);
+  } else if (message.action === "dialogue_unavailable") {
+    showDialogueStatus("error", "No aircraft available", String(message.message || "Wait for an aircraft signal."), 6000);
   }
 }
 

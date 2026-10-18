@@ -60,7 +60,7 @@ def gpio_is_active(value: Any) -> bool:
     return name == "ACTIVE" or value is True or value == 1
 
 
-def post_event(endpoint: str, event: dict[str, object]) -> None:
+def post_event(endpoint: str, event: dict[str, object]) -> dict[str, object]:
     payload = json.dumps(event, separators=(",", ":")).encode("utf-8")
     request = urllib.request.Request(
         endpoint,
@@ -69,7 +69,8 @@ def post_event(endpoint: str, event: dict[str, object]) -> None:
         method="POST",
     )
     with urllib.request.urlopen(request, timeout=0.8) as response:
-        response.read()
+        payload = response.read()
+    return json.loads(payload) if payload else {}
 
 
 def post_audio_question(endpoint: str, audio_path: str) -> dict[str, object]:
@@ -311,6 +312,7 @@ class Bridge:
         self._recording_process: subprocess.Popen[bytes] | None = None
         self._recording_path: str | None = None
         self._button_pressed_at = 0.0
+        self._question_blocked = False
         self._listening = threading.Event()
 
     def emit(self, event: dict[str, object]) -> None:
@@ -323,13 +325,24 @@ class Bridge:
         if self._recording_process is not None:
             return
         self._button_pressed_at = time.monotonic()
+        self._question_blocked = False
+        try:
+            status = post_event(self.stop_radio_endpoint, {})
+        except Exception as exc:
+            LOGGER.warning("pilot radio stop failed: %s", exc)
+            status = {"ready": False, "message": "Aircraft status is unavailable"}
+        if not status.get("ready"):
+            self._question_blocked = True
+            self.emit(
+                {
+                    "action": "dialogue_unavailable",
+                    "message": str(status.get("message") or "No aircraft are currently available"),
+                }
+            )
+            return
         self._recording_path = f"/tmp/skytrace-question-{time.time_ns()}.wav"
         self._listening.set()
         self.emit({"action": "dialogue_listening"})
-        try:
-            post_event(self.stop_radio_endpoint, {})
-        except Exception as exc:
-            LOGGER.warning("pilot radio stop failed: %s", exc)
         try:
             self._recording_process = subprocess.Popen(
                 [
@@ -359,6 +372,9 @@ class Bridge:
             self.emit({"action": "dialogue_error", "message": "Microphone could not start"})
 
     def finish_question(self) -> None:
+        if self._question_blocked:
+            self._question_blocked = False
+            return
         held_seconds = time.monotonic() - self._button_pressed_at
         process = self._recording_process
         path = self._recording_path

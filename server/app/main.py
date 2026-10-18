@@ -90,6 +90,18 @@ live_hub = LiveHub(realtime_snapshot, heartbeat_seconds=5.0)
 hardware_selected_icao: str | None = None
 
 
+def hardware_dialogue_status() -> tuple[str | None, str]:
+    active_aircraft = live_snapshot().get("aircraft", [])
+    if not active_aircraft:
+        return None, "No aircraft are currently available. Wait for an aircraft signal."
+    selected = hardware_selected_icao
+    if not selected:
+        return None, "Select an aircraft before speaking to the pilot."
+    if not any(str(item.get("icao", "")).upper() == selected for item in active_aircraft):
+        return None, "The selected aircraft is no longer available. Select another aircraft."
+    return selected, ""
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     database.initialize()
@@ -208,7 +220,14 @@ def hardware_stop_radio(request: Request) -> dict:
     if stopped_icao:
         global hardware_selected_icao
         hardware_selected_icao = stopped_icao
-    return {"stopped": bool(stopped_icao), "icao": stopped_icao}
+    selected_icao, message = hardware_dialogue_status()
+    return {
+        "stopped": bool(stopped_icao),
+        "icao": stopped_icao,
+        "ready": bool(selected_icao),
+        "selected": selected_icao,
+        "message": message,
+    }
 
 
 def play_pilot_dialogue(icao: str, aircraft: dict, answer: str) -> None:
@@ -219,6 +238,18 @@ def play_pilot_dialogue(icao: str, aircraft: dict, answer: str) -> None:
         finish_radio_session(session)
 
 
+async def broadcast_pilot_subtitles(question: str, answer: str, mode: str) -> None:
+    await live_hub.broadcast(
+        {
+            "type": "hardware_control",
+            "action": "dialogue_answer",
+            "question": question,
+            "answer": answer,
+            "mode": mode,
+        }
+    )
+
+
 @app.post("/api/v1/hardware/dialogue", include_in_schema=False)
 def hardware_dialogue(
     request: Request,
@@ -227,9 +258,9 @@ def hardware_dialogue(
 ) -> dict:
     if not is_local_or_docker_request(request):
         raise HTTPException(status_code=403, detail="local hardware only")
-    icao = hardware_selected_icao
+    icao, unavailable_message = hardware_dialogue_status()
     if not icao:
-        raise HTTPException(status_code=409, detail="select an aircraft first")
+        raise HTTPException(status_code=409, detail=unavailable_message)
     aircraft = _radio_aircraft_payload(icao)
     if aircraft is None:
         raise HTTPException(status_code=404, detail="selected aircraft is no longer available")
@@ -257,6 +288,7 @@ def hardware_dialogue(
     else:
         answer = fixed_pilot_answer(transcript, aircraft)
         mode = "fixed"
+    background_tasks.add_task(broadcast_pilot_subtitles, transcript, answer, mode)
     background_tasks.add_task(play_pilot_dialogue, icao, aircraft, answer)
     return {
         "icao": icao,
