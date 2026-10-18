@@ -19,7 +19,7 @@ services:
       RADIO_AUDIO_DEVICE: ${RADIO_AUDIO_DEVICE:-plughw:2,0}
       RADIO_TMP_DIR: /tmp
       RADIO_TTS_HTTP_URL: http://piper-http:8805
-      RADIO_TTS_LENGTH_SCALE: "1.0"
+      RADIO_TTS_LENGTH_SCALE: "0.92"
       SKYTRACE_RADIO_METER_PATH: /run/skytrace/radio-meter
       DIALOGUE_ASR_URL: http://faster-whisper:8803/recognize
       DIALOGUE_LLM_ENABLED: ${DIALOGUE_LLM_ENABLED:-false}
@@ -117,9 +117,17 @@ services:
   piper-http:
     build:
       context: ./services/piper-http
-      args: {VOICE_NAME: "${PIPER_VOICE:-en_US-ryan-medium}"}
+      args: {VOICE_NAME: "${PIPER_VOICE:-en_US-hfc_male-medium}"}
     image: skytrace-piper-http:1.5.0
     restart: unless-stopped
+    environment:
+      PIPER_VOICE: ${PIPER_VOICE:-en_US-hfc_male-medium}
+    volumes:
+      - ./data/piper:/voices:ro
+    command:
+      - sh
+      - -c
+      - voice=/voices/$${PIPER_VOICE}.onnx; [ -f "$$voice" ] || voice=/data/$${PIPER_VOICE}.onnx; exec python -m piper.http_server -m "$$voice" --host 0.0.0.0 --port 8805
     healthcheck:
       test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1',8805),3).close()"]
       interval: 30s

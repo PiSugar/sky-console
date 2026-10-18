@@ -43,13 +43,7 @@ class RadioVoice:
 
 
 RADIO_VOICES = (
-    RadioVoice("captain-ryan", "/home/pi/piper/en_US-ryan-medium.onnx", "/home/pi/piper/en_US-ryan-medium.onnx.json", 1.00, 0.58, 0.74, 1.03, -80, 1.00, 0.0),
-    RadioVoice("captain-joe", "/home/pi/piper/en_US-joe-medium.onnx", "/home/pi/piper/en_US-joe-medium.onnx.json", 0.98, 0.64, 0.82, 1.02, -55, 1.03, -0.5),
-    RadioVoice("captain-john", "/home/pi/piper/en_US-john-medium.onnx", "/home/pi/piper/en_US-john-medium.onnx.json", 1.03, 0.56, 0.72, 1.04, -95, 0.98, 0.5),
-    RadioVoice("captain-hfc", "/home/pi/piper/en_US-hfc_male-medium.onnx", "/home/pi/piper/en_US-hfc_male-medium.onnx.json", 0.96, 0.68, 0.84, 1.00, -40, 1.04, -1.0),
-    RadioVoice("captain-bryce", "/home/pi/piper/en_US-bryce-medium.onnx", "/home/pi/piper/en_US-bryce-medium.onnx.json", 1.05, 0.54, 0.70, 1.05, -120, 0.96, 0.5),
-    RadioVoice("captain-alan", "/home/pi/piper/en_GB-alan-medium.onnx", "/home/pi/piper/en_GB-alan-medium.onnx.json", 1.00, 0.62, 0.78, 1.03, -65, 1.00, 0.0),
-    RadioVoice("captain-northern", "/home/pi/piper/en_GB-northern_english_male-medium.onnx", "/home/pi/piper/en_GB-northern_english_male-medium.onnx.json", 1.04, 0.58, 0.76, 1.04, -110, 0.97, 0.5),
+    RadioVoice("captain-hfc", "/home/pi/piper/en_US-hfc_male-medium.onnx", "/home/pi/piper/en_US-hfc_male-medium.onnx.json", 0.92, 0.60, 0.78, 1.02, -70, 1.02, 0.0),
 )
 
 RADIO_TEMPLATES = (

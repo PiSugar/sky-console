@@ -1,6 +1,6 @@
 FROM python:3.12-bookworm
 
-ARG VOICE_NAME=en_US-ryan-medium
+ARG VOICE_NAME=en_US-hfc_male-medium
 ENV PIPER_VOICE=${VOICE_NAME}
 WORKDIR /data
 RUN pip install --no-cache-dir "piper-tts[http]==1.3.0" \

@@ -88,10 +88,10 @@ class Settings:
             radio_enabled=_bool_env("RADIO_ENABLED", False),
             radio_tts_command=os.getenv("RADIO_TTS_COMMAND", "piper"),
             radio_voice_model=os.getenv(
-                "RADIO_VOICE_MODEL", "/home/pi/piper/en_US-ryan-medium.onnx"
+                "RADIO_VOICE_MODEL", "/home/pi/piper/en_US-hfc_male-medium.onnx"
             ),
             radio_voice_config=os.getenv(
-                "RADIO_VOICE_CONFIG", "/home/pi/piper/en_US-ryan-medium.onnx.json"
+                "RADIO_VOICE_CONFIG", "/home/pi/piper/en_US-hfc_male-medium.onnx.json"
             ),
             radio_audio_device=os.getenv("RADIO_AUDIO_DEVICE", "plughw:2,0"),
             radio_tmp_dir=os.getenv("RADIO_TMP_DIR", "/tmp"),
