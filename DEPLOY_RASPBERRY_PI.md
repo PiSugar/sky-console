@@ -60,7 +60,7 @@ Found Rafael Micro R820T tuner
 
 | 变量 | 默认值 | 说明 |
 |---|---:|---|
-| `SERVER_URL` | `https://hive.hahapiggy.vip:38391` | 群晖 HTTPS 服务地址 |
+| `SERVER_URL` | `https://hive.hahapiggy.vip:8931` | 群晖 HTTPS 服务地址 |
 | `API_KEY` | 自动生成 | 上报密钥，必须与群晖一致 |
 | `RECEIVER_ID` | `devpn` | 接收站唯一 ID |
 | `UPLOAD_INTERVAL` | `5` | 上报间隔，秒 |

@@ -1,0 +1,77 @@
+services:
+  asr:
+    build:
+      context: ./services/faster-whisper
+      args:
+        MODEL_SIZE: ${FASTER_WHISPER_MODEL:-small.en}
+        ASR_BASE_IMAGE: ${ASR_BASE_IMAGE:-m.daocloud.io/docker.io/library/python:3.12-bookworm}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+    image: skytrace-faster-whisper:1.5.1
+    restart: unless-stopped
+    ports:
+      - "${ASR_BIND_ADDRESS:-127.0.0.1}:${ASR_PORT:-8903}:8803"
+    environment:
+      FASTER_WHISPER_MODEL: ${FASTER_WHISPER_MODEL:-small.en}
+      FASTER_WHISPER_MODEL_PATH: /models/${FASTER_WHISPER_MODEL:-small.en}
+      FASTER_WHISPER_CPU_THREADS: ${FASTER_WHISPER_CPU_THREADS:-4}
+      FASTER_WHISPER_BEAM_SIZE: ${FASTER_WHISPER_BEAM_SIZE:-5}
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.net}
+      MODEL_DOWNLOAD_ENDPOINT: ${MODEL_DOWNLOAD_ENDPOINT:-https://modelscope.cn/models/pengzhendong}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8803/healthz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 180s
+
+  ollama:
+    image: ${OLLAMA_IMAGE_MIRROR:-m.daocloud.io/docker.io/ollama/ollama:0.40.6}
+    restart: unless-stopped
+    ports:
+      - "${LLM_BIND_ADDRESS:-127.0.0.1}:${OLLAMA_PORT:-8904}:11434"
+    environment:
+      OLLAMA_KEEP_ALIVE: "-1"
+    volumes:
+      - ollama-data:/root/.ollama
+      - ollama-import:/models:ro
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+
+  ollama-model-download:
+    build:
+      context: ./services/ollama-model
+      args:
+        MODEL_FETCH_BASE_IMAGE: ${MODEL_FETCH_BASE_IMAGE:-m.daocloud.io/docker.io/library/python:3.12-alpine}
+    image: skytrace-model-fetch:1.5.1
+    environment:
+      MODEL_URL: ${OLLAMA_MODEL_URL:-https://modelscope.cn/models/unsloth/gemma-4-E2B-it-GGUF/resolve/master/gemma-4-E2B-it-Q4_K_M.gguf}
+      MODEL_FILE: ${OLLAMA_MODEL_FILE:-gemma-4-E2B-it-Q4_K_M.gguf}
+      MODEL_SIZE: ${OLLAMA_MODEL_SIZE:-3106738272}
+      MODEL_SHA256: ${OLLAMA_MODEL_SHA256:-740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8}
+    volumes:
+      - ollama-import:/models
+    restart: "no"
+
+  ollama-model:
+    image: ${OLLAMA_IMAGE_MIRROR:-m.daocloud.io/docker.io/ollama/ollama:0.40.6}
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      DIALOGUE_OLLAMA_MODEL: ${DIALOGUE_OLLAMA_MODEL:-gemma4:e2b}
+      OLLAMA_MODEL_FILE: ${OLLAMA_MODEL_FILE:-gemma-4-E2B-it-Q4_K_M.gguf}
+    entrypoint: ["sh", "-c", "until ollama list >/dev/null 2>&1; do sleep 2; done; printf 'FROM /models/%s\nPARAMETER temperature 0.8\nPARAMETER top_p 0.95\n' \"$$OLLAMA_MODEL_FILE\" >/tmp/Modelfile; ollama create \"$$DIALOGUE_OLLAMA_MODEL\" -f /tmp/Modelfile"]
+    volumes:
+      - ollama-import:/models:ro
+    depends_on:
+      ollama:
+        condition: service_healthy
+      ollama-model-download:
+        condition: service_completed_successfully
+    restart: "no"
+
+volumes:
+  ollama-data:
+  ollama-import:

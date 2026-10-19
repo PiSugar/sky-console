@@ -3,13 +3,13 @@ services:
     build: ./server
     image: skytrace-server:1.5.0
     restart: unless-stopped
-    ports: ["${PUBLIC_PORT:-38391}:8080"]
+    ports: ["${PUBLIC_PORT:-8931}:8080"]
     environment:
       DATABASE_PATH: /data/adsb.sqlite3
       INGEST_API_KEY: ${INGEST_API_KEY:?set INGEST_API_KEY in .env}
       RETENTION_HOURS: ${RETENTION_HOURS:-2160}
       ACTIVE_SECONDS: ${ACTIVE_SECONDS:-90}
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://127.0.0.1:38391}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://127.0.0.1:8931}
       REALTIME_FIRST: "true"
       STORE_RAW_MESSAGES: "false"
       STORE_POSITIONS: "false"
@@ -21,9 +21,9 @@ services:
       RADIO_TTS_HTTP_URL: http://piper-http:8805
       RADIO_TTS_LENGTH_SCALE: "0.92"
       SKYTRACE_RADIO_METER_PATH: /run/skytrace/radio-meter
-      DIALOGUE_ASR_URL: http://faster-whisper:8803/recognize
+      DIALOGUE_ASR_URL: ${DIALOGUE_ASR_URL:?set DIALOGUE_ASR_URL to the Mac Tailscale ASR endpoint}
       DIALOGUE_LLM_ENABLED: ${DIALOGUE_LLM_ENABLED:-false}
-      DIALOGUE_OLLAMA_URL: http://ollama:11434
+      DIALOGUE_OLLAMA_URL: ${DIALOGUE_OLLAMA_URL:-http://127.0.0.1:8904}
       DIALOGUE_OLLAMA_MODEL: ${DIALOGUE_OLLAMA_MODEL:-gemma4:e2b}
       KIOSK_CLOSE_REQUEST_PATH: /run/skytrace/close-kiosk
     volumes:
@@ -31,7 +31,6 @@ services:
       - ./runtime/state:/run/skytrace
     devices: ["/dev/snd:/dev/snd"]
     depends_on:
-      faster-whisper: {condition: service_healthy}
       piper-http: {condition: service_healthy}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3)"]
@@ -102,21 +101,6 @@ services:
       adsb-server: {condition: service_healthy}
       adsb-client: {condition: service_started}
 
-  faster-whisper:
-    build:
-      context: ./services/faster-whisper
-      args: {MODEL_SIZE: "${FASTER_WHISPER_MODEL:-tiny.en}"}
-    image: skytrace-faster-whisper:1.5.0
-    restart: unless-stopped
-    environment:
-      FASTER_WHISPER_MODEL: ${FASTER_WHISPER_MODEL:-tiny.en}
-    healthcheck:
-      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1',8803),3).close()"]
-      interval: 20s
-      timeout: 5s
-      retries: 10
-      start_period: 180s
-
   piper-http:
     build:
       context: ./services/piper-http
@@ -138,21 +122,5 @@ services:
       retries: 5
       start_period: 60s
 
-  ollama:
-    image: ollama/ollama:latest
-    restart: unless-stopped
-    profiles: [llm]
-    environment: {OLLAMA_KEEP_ALIVE: "-1"}
-    volumes: ["ollama-data:/root/.ollama"]
-
-  ollama-model:
-    image: ollama/ollama:latest
-    profiles: [llm]
-    environment: {OLLAMA_HOST: "http://ollama:11434"}
-    entrypoint: ["sh", "-c", "until ollama list >/dev/null 2>&1; do sleep 2; done; ollama pull ${DIALOGUE_OLLAMA_MODEL:-gemma4:e2b}"]
-    depends_on: [ollama]
-    restart: "no"
-
 volumes:
   readsb-state:
-  ollama-data:

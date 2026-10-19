@@ -4,7 +4,7 @@ set -eu
 cd "$(dirname "$0")"
 umask 077
 
-DEFAULT_PORT=38391
+DEFAULT_PORT=8931
 DEFAULT_DOMAIN=hive.hahapiggy.vip
 ENV_FILE=.env
 SSL_DIR=../SSL

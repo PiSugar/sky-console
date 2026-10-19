@@ -59,16 +59,16 @@ sudo sh deploy-synology.sh
 默认 HTTPS 网页和 API 地址：
 
 ```text
-https://hive.hahapiggy.vip:38391
+https://hive.hahapiggy.vip:8931
 ```
 
-请在以下位置放行 TCP `38391`：
+请在以下位置放行 TCP `8931`：
 
 - DSM 控制面板 → 安全性 → 防火墙；
 - 路由器 IPv6 防火墙；
 - 如果使用 IPv4，还需配置端口转发到群晖。
 
-实时页面使用同一端口上的 `wss://hive.hahapiggy.vip:38391/ws/v1/live`，不需要额外开放 WebSocket 端口。
+实时页面使用同一端口上的 `wss://hive.hahapiggy.vip:8931/ws/v1/live`，不需要额外开放 WebSocket 端口。
 
 若端口需要修改，可在首次部署前执行：
 
@@ -111,7 +111,7 @@ sudo sh deploy-synology.sh
 健康检查：
 
 ```text
-https://hive.hahapiggy.vip:38391/healthz
+https://hive.hahapiggy.vip:8931/healthz
 ```
 
 正常返回：

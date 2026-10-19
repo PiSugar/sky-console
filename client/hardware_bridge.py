@@ -640,7 +640,7 @@ def main() -> None:
     bridge = Bridge(
         endpoint=os.getenv(
             "SKYTRACE_HARDWARE_ENDPOINT",
-            "http://127.0.0.1:38391/api/v1/hardware/event",
+            "http://127.0.0.1:8931/api/v1/hardware/event",
         ),
         signal_path=os.getenv(
             "SKYTRACE_SIGNAL_PATH",
@@ -652,15 +652,15 @@ def main() -> None:
         ),
         dialogue_endpoint=os.getenv(
             "SKYTRACE_DIALOGUE_ENDPOINT",
-            "http://127.0.0.1:38391/api/v1/hardware/dialogue",
+            "http://127.0.0.1:8931/api/v1/hardware/dialogue",
         ),
         stop_radio_endpoint=os.getenv(
             "SKYTRACE_STOP_RADIO_ENDPOINT",
-            "http://127.0.0.1:38391/api/v1/hardware/radio/stop",
+            "http://127.0.0.1:8931/api/v1/hardware/radio/stop",
         ),
         dialogue_status_endpoint=os.getenv(
             "SKYTRACE_DIALOGUE_STATUS_ENDPOINT",
-            "http://127.0.0.1:38391/api/v1/hardware/dialogue/status",
+            "http://127.0.0.1:8931/api/v1/hardware/dialogue/status",
         ),
         capture_device=os.getenv("SKYTRACE_CAPTURE_DEVICE", "plughw:2,0"),
         hold_seconds=float(os.getenv("SKYTRACE_BUTTON_HOLD_SECONDS", "0.7")),

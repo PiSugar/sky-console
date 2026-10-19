@@ -69,7 +69,7 @@ class Settings:
             ),
             active_seconds=_int_env("ACTIVE_SECONDS", 90, 10, 3600),
             public_base_url=os.getenv(
-                "PUBLIC_BASE_URL", "https://hive.hahapiggy.vip:38391"
+                "PUBLIC_BASE_URL", "https://hive.hahapiggy.vip:8931"
             ).rstrip("/"),
             realtime_first=_bool_env("REALTIME_FIRST", True),
             store_raw_messages=_bool_env("STORE_RAW_MESSAGES", False),

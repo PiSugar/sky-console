@@ -31,7 +31,7 @@ RTL2832U / R820T USB 接收器
 
 ## 快速部署顺序
 
-当前树莓派版本使用根目录的 Docker Compose 统一部署。详见 [Docker 部署说明](DEPLOY_DOCKER.md)。Ollama + `gemma4:e2b` 为可选 profile；不开启时仍保留固定模板播报和长按问答。
+当前树莓派版本使用根目录的 Docker Compose 部署界面、硬件与 ADS-B 服务；Mac 使用 `docker-compose.asr.yml` 部署 ASR 和 Ollama，并通过 Tailscale 与树莓派连接。详见 [Docker 部署说明](DEPLOY_DOCKER.md)。不开启 LLM 时仍保留固定模板播报和长按问答。
 
 1. 执行 `cp .env.example .env`，至少修改 `INGEST_API_KEY`。
 2. 执行 `sudo docker compose build`。
@@ -39,7 +39,7 @@ RTL2832U / R820T USB 接收器
 
 群晖的独立服务端部署方式仍保留在 [群晖部署说明](DEPLOY_SYNOLOGY.md)。
 4. 按 [树莓派部署说明](DEPLOY_RASPBERRY_PI.md) 执行 `sh deploy-client.sh`。
-5. 打开 `https://hive.hahapiggy.vip:38391`。
+5. 打开 `https://hive.hahapiggy.vip:8931`。
 
 服务端和树莓派客户端需要一起更新。本版客户端会读取 readsb 的 `seen_pos`，分别记录“最后信号时间”和“最后位置时间”；只更新群晖而不更新客户端时，服务端会兼容旧数据，但连续航迹推算的时间精度会较低。
 
@@ -68,7 +68,7 @@ adsb-tracker/
 ## 安全与容量
 
 - 写入 API 必须使用部署时随机生成的上报密钥；网页和只读 API 默认不要求登录，适合放在自有局域网或由 DSM 反向代理负责访问控制。
-- 默认端口为 TCP `38391`。
+- 默认端口为 TCP `8931`。
 - HTTPS 直接使用脚本目录旁 `../SSL/privkey.pem` 和 `../SSL/fullchain.pem`，证书目录以只读方式映射进容器。
 - 原始报文量取决于天线位置和空域繁忙程度。默认 90 天通常会积累数 GB 数据；存储较小时可把 `RETENTION_DAYS` 改成 `30`。
 - SQLite 使用 WAL 模式。备份时建议先停止 `adsb-tracker-server`，再完整复制 `../data/abs_d`。

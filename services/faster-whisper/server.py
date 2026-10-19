@@ -9,14 +9,32 @@ from faster_whisper import WhisperModel
 from flask import Flask, jsonify, request
 
 
-MODEL = os.getenv("FASTER_WHISPER_MODEL", "tiny.en")
+MODEL = os.getenv("FASTER_WHISPER_MODEL", "small.en")
+MODEL_PATH = os.getenv("FASTER_WHISPER_MODEL_PATH", f"/models/{MODEL}")
+CPU_THREADS = int(os.getenv("FASTER_WHISPER_CPU_THREADS", "3"))
+BEAM_SIZE = int(os.getenv("FASTER_WHISPER_BEAM_SIZE", "5"))
+INITIAL_PROMPT = os.getenv(
+    "FASTER_WHISPER_INITIAL_PROMPT",
+    (
+        "A visitor is speaking English to an aircraft pilot. Questions may mention "
+        "a callsign, altitude, attitude, speed, heading, course, destination, origin, "
+        "route, climbing, descending, aircraft, flight, or ask the pilot to tell a joke."
+    ),
+)
+HOTWORDS = os.getenv(
+    "FASTER_WHISPER_HOTWORDS",
+    (
+        "aircraft, pilot, callsign, altitude, attitude, airspeed, ground speed, heading, "
+        "course, destination, origin, route, climb, climbing, descend, descending, flight"
+    ),
+)
 app = Flask(__name__)
-model = WhisperModel(MODEL, device="cpu", cpu_threads=3, compute_type="int8")
+model = WhisperModel(MODEL_PATH, device="cpu", cpu_threads=CPU_THREADS, compute_type="int8")
 
 
 @app.get("/healthz")
 def healthz():
-    return {"status": "ok", "model": MODEL}
+    return {"status": "ok", "model": MODEL, "beam_size": BEAM_SIZE}
 
 
 @app.post("/recognize")
@@ -33,7 +51,19 @@ def recognize():
         segments, info = model.transcribe(
             path,
             language=payload.get("language") or "en",
+            beam_size=BEAM_SIZE,
+            patience=1.2,
+            temperature=0.0,
+            condition_on_previous_text=False,
+            initial_prompt=INITIAL_PROMPT,
+            hotwords=HOTWORDS,
+            repetition_penalty=1.05,
+            no_repeat_ngram_size=3,
             vad_filter=True,
+            vad_parameters={
+                "min_silence_duration_ms": 350,
+                "speech_pad_ms": 250,
+            },
         )
         text = "".join(segment.text for segment in segments).strip()
         return {
