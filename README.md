@@ -18,15 +18,18 @@ SkyTrace 在树莓派上接收 1090 MHz ADS-B 信号，提供实时地图、航�
 
 ## 功能设置
 
-普通页面顶部的 **Settings** 和全屏地图左下角的齿轮按钮可打开设备设置面板：
+普通页面顶部的 **Settings** 和全屏地图右上角常驻的 **⚙ Settings** 按钮可打开设备设置面板，选中飞机后仍可使用：
 
-- **Voice responses**：开关飞机语音播报和问答语音；关闭时立即停止正在播放的语音，问答仍显示文字。
+- **Flight details**：获取航司、航线和飞机照片，位于第一项；关闭后停止新的外部查询，已有缓存和实时 ADS-B 数据保留。已发出的请求可能完成。
+- **Voice responses**：开关飞机语音播报和问答语音；关闭时停止正在播放的语音，但选中飞机的提示音保留，问答仍显示文字。
 - **Voice questions**：开关硬件长按提问；关闭后不再进行语音识别或生成回答。
 - **LLM responses**：开关模型应答；关闭或模型请求失败时使用固定模板回答。关闭语音提问时保留此选择，重新开启提问后继续生效。
 
-设置即时保存到历史数据库同目录的 `feature-settings.json`（Docker 中位于持久化 `/data`），无需重启，并通过 WebSocket 同步到其他页面。首次运行沿用 `RADIO_ENABLED`、`DIALOGUE_LLM_ENABLED` 的部署默认值，语音提问默认开启；保存后以面板设置为准。模型、ASR 和音频服务仍需事先部署，开关不会启动或停止 Docker 服务。
+设置即时保存到历史数据库同目录的 `feature-settings.json`（Docker 中位于持久化 `/data`），无需重启，并通过 WebSocket 同步到其他页面。首次运行沿用 `RADIO_ENABLED`、`DIALOGUE_LLM_ENABLED` 和详情获取的部署默认值，语音提问默认关闭；保存后以面板设置为准。模型、ASR 和音频服务仍需事先部署，开关不会启动或停止 Docker 服务。
 
-沿用硬件控制的访问范围：设备本机和 Docker 内网可在面板修改，远程浏览器只读。远程管理程序可使用现有上报密钥调用 `PATCH /api/v1/settings`，请求头为 `Authorization: Bearer <INGEST_API_KEY>`，JSON 请求体仅包含要修改的布尔字段：`radio_enabled`、`dialogue_enabled`、`dialogue_llm_enabled`。设置文件写入失败时保留原设置并显示错误。
+开启语音提问前检查 ASR 健康接口，开启 LLM 应答前同时检查 ASR、Ollama 服务及指定模型是否已安装；未就绪的开关不可开启，并显示原因。启动检查会关闭没有就绪服务的旧开关，配置完成后点击 **Check services again** 重新检测再开启。ASR 健康地址默认是识别接口同目录的 `healthz`，也可使用 `DIALOGUE_ASR_HEALTH_URL` 指定。后端同样校验，无法通过 API 绕过；运行中服务断开时停止提问或回退固定回答。
+
+沿用硬件控制的访问范围：设备本机和 Docker 内网可在面板修改，远程浏览器只读。远程管理程序可使用现有上报密钥调用 `PATCH /api/v1/settings`，请求头为 `Authorization: Bearer <INGEST_API_KEY>`，JSON 请求体仅包含要修改的布尔字段：`enrichment_enabled`、`radio_enabled`、`dialogue_enabled`、`dialogue_llm_enabled`。设置文件写入失败时保留原设置并显示错误。
 
 ## 数据链路
 

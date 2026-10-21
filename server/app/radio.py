@@ -14,6 +14,7 @@ import threading
 import time
 import urllib.request
 import wave
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -387,6 +388,24 @@ def _synthesize_http(url: str, text: str, output_path: Path, length_scale: float
         output_path.write_bytes(response.read())
 
 
+def play_radio_chirp(*, session: RadioSession, audio_device: str, tmp_dir: str) -> dict[str, Any]:
+    """Selection feedback is independent of speech synthesis and voice settings."""
+    try:
+        Path(tmp_dir).mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="skytrace-chirp-", dir=tmp_dir) as directory:
+            path = str(Path(directory) / "chirp.wav")
+            _run_cancelable(
+                ["sox", "-n", "-r", "48000", "-c", "2", path,
+                 "synth", "0.07", "sine", "880", "vol", "0.16", "pad", "0", "0.04"],
+                session=session, timeout=5,
+            )
+            _run_cancelable(["aplay", "-q", "-D", audio_device, path],
+                            session=session, timeout=5, audio_playback=True)
+        return {"played": True}
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"played": False, "reason": f"{type(exc).__name__}: {exc}"}
+
+
 def play_radio_text(
     aircraft: dict[str, Any],
     text: str,
@@ -401,6 +420,7 @@ def play_radio_text(
     chirp: bool = False,
     tts_http_url: str = "",
     tts_length_scale: float = 1.0,
+    on_playback: Callable[[bool], None] | None = None,
 ) -> dict[str, Any]:
     flight = (
         aircraft.get("route_callsign_iata")
@@ -418,34 +438,9 @@ def play_radio_text(
             model_path = voice.model_path if Path(voice.model_path).is_file() else voice_model
             config_path = voice.config_path if Path(voice.config_path).is_file() else voice_config
             if chirp:
-                _run_cancelable(
-                    [
-                        "sox",
-                        "-n",
-                        "-r",
-                        "48000",
-                        "-c",
-                        "2",
-                        str(chirp_wav),
-                        "synth",
-                        "0.07",
-                        "sine",
-                        "880",
-                        "vol",
-                        "0.16",
-                        "pad",
-                        "0",
-                        "0.04",
-                    ],
-                    session=session,
-                    timeout=5,
-                )
-                _run_cancelable(
-                    ["aplay", "-q", "-D", audio_device, str(chirp_wav)],
-                    session=session,
-                    timeout=5,
-                    audio_playback=True,
-                )
+                result = play_radio_chirp(session=session, audio_device=audio_device, tmp_dir=tmp_dir)
+                if not result.get("played"):
+                    return result
             if tts_http_url:
                 _synthesize_http(tts_http_url, text, raw_wav, tts_length_scale)
             else:
@@ -502,12 +497,20 @@ def play_radio_text(
                 session=session,
                 timeout=10,
             )
-            _run_cancelable(
-                ["aplay", "-q", "-D", audio_device, str(radio_wav)],
-                session=session,
-                timeout=20,
-                audio_playback=True,
-            )
+            if session.cancelled.is_set():
+                raise subprocess.SubprocessError("radio session cancelled")
+            try:
+                if on_playback:
+                    on_playback(True)
+                _run_cancelable(
+                    ["aplay", "-q", "-D", audio_device, str(radio_wav)],
+                    session=session,
+                    timeout=20,
+                    audio_playback=True,
+                )
+            finally:
+                if on_playback:
+                    on_playback(False)
         return {"played": True, "voice": voice.name, "model": model_path, "flight": flight, "text": text}
     except (OSError, subprocess.SubprocessError) as exc:
         return {"played": False, "reason": f"{type(exc).__name__}: {exc}"}

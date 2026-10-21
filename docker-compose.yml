@@ -1,7 +1,7 @@
 services:
   adsb-server:
     build: ./server
-    image: skytrace-server:1.5.1
+    image: skytrace-server:1.5.3
     restart: unless-stopped
     ports: ["${PUBLIC_PORT:-8931}:8080"]
     environment:
@@ -23,9 +23,10 @@ services:
       RADIO_TTS_HTTP_URL: http://piper-http:8805
       RADIO_TTS_LENGTH_SCALE: "0.92"
       SKYTRACE_RADIO_METER_PATH: /run/skytrace/radio-meter
-      DIALOGUE_ASR_URL: ${DIALOGUE_ASR_URL:?set DIALOGUE_ASR_URL to the Mac Tailscale ASR endpoint}
+      DIALOGUE_ASR_URL: ${DIALOGUE_ASR_URL:-}
+      DIALOGUE_ASR_HEALTH_URL: ${DIALOGUE_ASR_HEALTH_URL:-}
       DIALOGUE_LLM_ENABLED: ${DIALOGUE_LLM_ENABLED:-false}
-      DIALOGUE_OLLAMA_URL: ${DIALOGUE_OLLAMA_URL:-http://127.0.0.1:8904}
+      DIALOGUE_OLLAMA_URL: ${DIALOGUE_OLLAMA_URL:-}
       DIALOGUE_OLLAMA_MODEL: ${DIALOGUE_OLLAMA_MODEL:-gemma4:e2b}
       KIOSK_CLOSE_REQUEST_PATH: /run/skytrace/close-kiosk
     volumes:

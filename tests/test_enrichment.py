@@ -16,6 +16,21 @@ from app.models import IngestBatch  # noqa: E402
 
 
 class EnrichmentCacheTests(unittest.TestCase):
+    def test_disabled_details_do_not_fetch_or_poison_cached_results(self) -> None:
+        service = EnrichmentService(self.database, enabled=False, base_url="https://api.example/v0",
+                                    success_hours=168, retry_hours=6, timeout_seconds=3)
+        with patch("app.enrichment.urllib.request.urlopen") as fetch, patch.object(self.database, "save_aircraft_metadata") as save_aircraft, patch.object(self.database, "save_flight_route") as save_route:
+            service.schedule_contacts([("40621D", "BAW123")])
+            service._lookup_aircraft("40621D")
+            service._lookup_route("BAW123")
+            fetch.assert_not_called()
+            save_aircraft.assert_not_called()
+            save_route.assert_not_called()
+            self.assertTrue(all(work.empty() for work in service._queues.values()))
+            service.enabled = True
+            service.schedule_contacts([("40621D", "BAW123")])
+            self.assertTrue(all(not work.empty() for work in service._queues.values()))
+
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.database = Database(

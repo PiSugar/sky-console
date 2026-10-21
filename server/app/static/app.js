@@ -429,10 +429,10 @@ async function refreshQuickCardEnrichment(icao) {
 
 function scheduleQuickEnrichmentRefresh(icao, attempt = 0) {
   window.clearTimeout(state.quickEnrichmentRefreshTimer);
-  if (attempt >= 6 || state.quickAircraftIcao !== icao) return;
+  if (!window.skyTraceSettings?.enabled("enrichment_enabled") || attempt >= 6 || state.quickAircraftIcao !== icao) return;
   const delay = [250, 600, 1000, 1600, 2400, 3500][attempt];
   state.quickEnrichmentRefreshTimer = window.setTimeout(async () => {
-    if (state.quickAircraftIcao !== icao) return;
+    if (!window.skyTraceSettings?.enabled("enrichment_enabled") || state.quickAircraftIcao !== icao) return;
     const aircraft = state.live.find((item) => item.icao === icao);
     if (!aircraft) return;
     try {
@@ -507,6 +507,7 @@ function toggleAircraftFollow() {
 }
 
 function enrichmentPending(aircraft) {
+  if (!window.skyTraceSettings?.enabled("enrichment_enabled")) return false;
   const metadataPending = aircraft.metadata_status === null || aircraft.metadata_status === undefined;
   const routePending = Boolean(aircraft.callsign) && (aircraft.route_status === null || aircraft.route_status === undefined);
   return metadataPending || routePending;
@@ -527,7 +528,6 @@ async function api(path) {
 }
 
 async function playAircraftRadio(icao) {
-  if (!window.skyTraceSettings?.enabled("radio_enabled")) return;
   const now = Date.now();
   const lastPlayedAt = state.radioClickCooldowns.get(icao) || 0;
   if (now - lastPlayedAt < 2500) return;
@@ -1183,6 +1183,7 @@ function selectNearestVisibleAircraft() {
 
 function showDialogueStatus(kind, title, text, timeout = 0) {
   if (!elements.dialogueStatus) return;
+  state.radioSubtitleId = null;
   window.clearTimeout(state.dialogueStatusTimer);
   window.clearInterval(state.dialogueWordTimer);
   state.dialogueWordTimer = null;
@@ -1196,6 +1197,21 @@ function showDialogueStatus(kind, title, text, timeout = 0) {
     state.dialogueStatusTimer = window.setTimeout(() => {
       elements.dialogueStatus.hidden = true;
     }, timeout);
+  }
+}
+
+function handleRadioSubtitle(message) {
+  if (message.active) {
+    if (!window.skyTraceSettings?.enabled("radio_enabled")) return;
+    showDialogueStatus("answer", `PILOT · ${message.callsign || message.icao || "AIRCRAFT"}`,
+      String(message.text || ""), 30000);
+    state.radioSubtitleId = message.id;
+  } else if (state.radioSubtitleId === message.id) {
+    window.clearTimeout(state.dialogueStatusTimer);
+    state.dialogueStatusTimer = window.setTimeout(() => {
+      elements.dialogueStatus.hidden = true;
+      state.radioSubtitleId = null;
+    }, message.cancelled ? 0 : 1800);
   }
 }
 
@@ -1372,6 +1388,7 @@ function connectLiveSocket() {
         applyLiveSnapshot(message);
       }
       else if (message.type === "settings") window.skyTraceSettings?.apply(message);
+      else if (message.type === "radio_subtitle") handleRadioSubtitle(message);
       else if (message.type === "hardware_control") handleHardwareControl(message);
     } catch (_error) {
       showToast("Received an unrecognized live message");
@@ -1381,6 +1398,11 @@ function connectLiveSocket() {
   socket.addEventListener("close", () => {
     if (socket !== state.socket) return;
     state.socket = null;
+    if (state.radioSubtitleId) {
+      window.clearTimeout(state.dialogueStatusTimer);
+      elements.dialogueStatus.hidden = true;
+      state.radioSubtitleId = null;
+    }
     if (state.socketStopped) return;
     setConnection(false, "Live connection interrupted");
     const delay = Math.min(15000, 1000 * (2 ** state.socketRetryAttempt));
@@ -1779,10 +1801,10 @@ async function loadMessages(append = false) {
 
 function scheduleEnrichmentRefresh(icao, attempt = 0) {
   window.clearTimeout(state.enrichmentRefreshTimer);
-  if (attempt >= 6 || state.selectedIcao !== icao) return;
+  if (!window.skyTraceSettings?.enabled("enrichment_enabled") || attempt >= 6 || state.selectedIcao !== icao) return;
   const delay = [250, 600, 1000, 1600, 2400, 3500][attempt];
   state.enrichmentRefreshTimer = window.setTimeout(async () => {
-    if (state.selectedIcao !== icao) return;
+    if (!window.skyTraceSettings?.enabled("enrichment_enabled") || state.selectedIcao !== icao) return;
     try {
       const data = await api(enrichmentUrl(icao, state.detailAircraft?.callsign));
       if (state.selectedIcao !== icao) return;

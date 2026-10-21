@@ -16,7 +16,7 @@
   --radius: 18px;
 }
 
-.settings-open, #settings-retry {
+.settings-open, #settings-retry, #settings-check-services {
   border: 1px solid var(--line-strong);
   border-radius: 10px;
   padding: 10px 14px;
@@ -24,19 +24,7 @@
   cursor: pointer;
 }
 
-#kiosk-settings { display: none; }
-body.kiosk-map #kiosk-settings {
-  display: block;
-  position: fixed;
-  z-index: 1100;
-  left: 10px;
-  bottom: 10px;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  font-size: 24px;
-  background: rgba(7, 16, 14, 0.9);
-}
+.kiosk-actions { display: none; }
 
 #settings-panel {
   width: min(520px, calc(100% - 24px));
@@ -636,32 +624,40 @@ body.kiosk-map .toast {
   display: none;
 }
 
-body.kiosk-map .kiosk-close {
+body.kiosk-map .kiosk-actions {
   position: fixed;
   z-index: 1100;
   top: 8px;
   right: 8px;
-  display: grid;
-  width: 34px;
-  height: 34px;
-  padding: 0;
-  place-items: center;
+  display: flex;
+  gap: 8px;
+}
+body.kiosk-map .kiosk-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 44px;
+  padding: 0 12px;
   border: 1px solid rgba(236, 246, 241, 0.22);
-  border-radius: 50%;
+  border-radius: 10px;
   color: var(--text);
-  background: rgba(7, 16, 14, 0.72);
+  background: rgba(7, 16, 14, 0.9);
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.34);
   backdrop-filter: blur(10px);
   cursor: pointer;
-  font-size: 24px;
+  font-size: 14px;
+  font-weight: 650;
   line-height: 1;
 }
+body.kiosk-map .kiosk-action span { font-size: 22px; }
+body.kiosk-map .kiosk-action:active { transform: scale(0.96); }
 
 body.kiosk-map .kiosk-stats {
   position: fixed;
   z-index: 1090;
-  top: 8px;
-  right: 50px;
+  top: 60px;
+  right: 8px;
   display: block;
   max-width: calc(100vw - 104px);
   padding: 5px 8px;
@@ -680,9 +676,6 @@ body.kiosk-map .kiosk-stats {
   white-space: nowrap;
 }
 
-body.kiosk-map .kiosk-close:active {
-  transform: scale(0.96);
-}
 
 .photo-viewer:not([hidden]) {
   position: fixed;

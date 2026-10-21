@@ -21,6 +21,10 @@ PLANESPOTTERS_PHOTO_URL = "https://api.planespotters.net/pub/photos/hex"
 PLANESPOTTERS_USER_AGENT = "SkyTrace/1.5 (+https://github.com/PiSugar/sky-console)"
 
 
+class EnrichmentDisabled(Exception):
+    pass
+
+
 def _text(value: Any, maximum: int = 200) -> str | None:
     if not isinstance(value, (str, int, float)):
         return None
@@ -73,8 +77,9 @@ class EnrichmentService:
         self._request_lock = threading.Lock()
 
     def start(self, seed: Iterable[tuple[str, str | None]] = ()) -> None:
-        if not self.enabled or self._threads:
+        if self._threads:
             return
+        self._stop_event.clear()
         for kind in ("callsign", "aircraft"):
             thread = threading.Thread(
                 target=self._worker,
@@ -144,6 +149,8 @@ class EnrichmentService:
                 work_queue.task_done()
                 break
             try:
+                if not self.enabled:
+                    continue
                 if kind == "aircraft":
                     self._lookup_aircraft(key)
                 else:
@@ -189,10 +196,14 @@ class EnrichmentService:
             else:
                 try:
                     values.update(self._lookup_planespotters_photo(icao))
+                except EnrichmentDisabled:
+                    return
                 except Exception as exc:
                     LOGGER.info("aircraft photo lookup failed for %s: %s", icao, exc)
                     values["photo_source"] = "unavailable"
             self.database.save_aircraft_metadata(icao, values, "ok")
+        except EnrichmentDisabled:
+            return
         except LookupError as exc:
             self.database.save_aircraft_metadata(icao, {}, "not_found", str(exc))
         except Exception as exc:
@@ -201,6 +212,8 @@ class EnrichmentService:
             )
 
     def _lookup_planespotters_photo(self, icao: str) -> dict[str, str | None]:
+        if not self.enabled:
+            raise EnrichmentDisabled()
         request = urllib.request.Request(
             f"{PLANESPOTTERS_PHOTO_URL}/{urllib.parse.quote(icao)}",
             headers={
@@ -255,6 +268,8 @@ class EnrichmentService:
                 **self._airport_values("destination", destination),
             }
             self.database.save_flight_route(callsign, values, "ok")
+        except EnrichmentDisabled:
+            return
         except LookupError as exc:
             self.database.save_flight_route(callsign, {}, "not_found", str(exc))
         except Exception as exc:
@@ -279,6 +294,8 @@ class EnrichmentService:
         }
 
     def _get_json(self, endpoint: str) -> dict[str, Any]:
+        if not self.enabled:
+            raise EnrichmentDisabled()
         with self._request_lock:
             elapsed = time.monotonic() - self._last_request_at
             if elapsed < 0.3:
@@ -292,6 +309,8 @@ class EnrichmentService:
             },
         )
         try:
+            if not self.enabled:
+                raise EnrichmentDisabled()
             with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
                 body = response.read(1_000_001)
         except urllib.error.HTTPError as exc:

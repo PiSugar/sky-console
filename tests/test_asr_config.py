@@ -49,7 +49,7 @@ class AsrConfigurationTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn("DIALOGUE_ASR_URL: ${DIALOGUE_ASR_URL:?", pi_compose)
+        self.assertIn("DIALOGUE_ASR_URL: ${DIALOGUE_ASR_URL:-}", pi_compose)
         self.assertNotIn("  faster-whisper:", pi_compose)
         self.assertIn('"${ASR_BIND_ADDRESS:-127.0.0.1}:${ASR_PORT:-8903}:8803"', asr_compose)
 

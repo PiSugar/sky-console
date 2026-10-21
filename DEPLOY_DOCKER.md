@@ -18,7 +18,18 @@ Version 1.5.1 adds the device Settings panel, persistent Esri / OpenStreetMap ti
 cache and `client/watch-aircraft.sh`. Settings are stored in
 `data/feature-settings.json`; tiles in `data/map-tiles.sqlite3`. Both survive image
 rebuilds. `MAP_TILE_CACHE_MAX_MB` defaults to 512. The settings panel is available
-at the top of the normal page and via the gear button in kiosk mode.
+at the top of the normal page and via the persistent **⚙ Settings** button at the
+top right of kiosk mode. Version 1.5.2 makes this entry explicit and displays the
+spoken aircraft introduction and route as subtitles when each audio segment plays.
+Subtitles clear when playback is cancelled and briefly linger after each segment.
+
+Version 1.5.3 unifies the kiosk Settings/Close controls, keeps the selection beep
+when speech is off, and adds Flight details as the first switch. Turning details
+off stops new external lookups while retaining cached data. ASR and LLM services
+are optional: unavailable services cannot be enabled in Settings or via the API.
+ASR readiness uses `healthz` next to `DIALOGUE_ASR_URL` (override with
+`DIALOGUE_ASR_HEALTH_URL`); Ollama readiness checks `/api/tags` for the configured
+model. Use **Check services again** after configuring or starting these services.
 
 Before this upgrade, the source/configuration and desktop launcher were backed
 up to `/home/pi/skytrace-backups/20261021-1.5.1/`. The previous server image is

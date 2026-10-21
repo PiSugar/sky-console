@@ -26,12 +26,15 @@ class LiveHub:
         self._lock = asyncio.Lock()
         self._wake = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     async def start(self) -> None:
+        self._loop = asyncio.get_running_loop()
         if self._task is None:
             self._task = asyncio.create_task(self._run(), name="adsb-live-hub")
 
     async def stop(self) -> None:
+        self._loop = None
         task, self._task = self._task, None
         if task is not None:
             task.cancel()
@@ -63,6 +66,16 @@ class LiveHub:
         """Wake the broadcaster after a newly ingested batch."""
 
         self._wake.set()
+
+    def broadcast_from_thread(self, message: dict[str, Any]) -> None:
+        """Schedule playback events on the WebSocket owner's event loop."""
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            return
+        try:
+            loop.call_soon_threadsafe(lambda: asyncio.create_task(self.broadcast(message)))
+        except RuntimeError:
+            pass  # The server may have shut down while audio was finishing.
 
     async def broadcast(self, message: dict[str, Any]) -> None:
         """Send an out-of-band event to every connected browser."""

@@ -6,6 +6,7 @@ import ipaddress
 import logging
 import threading
 import urllib.error
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -45,10 +46,12 @@ from .radio import (
     has_confirmed_route,
     is_radio_playing,
     play_radio_text,
+    play_radio_chirp,
     radio_intro_text,
     radio_route_text,
 )
 from .realtime import LiveHub
+from .service_availability import ServiceAvailability
 from .tile_cache import TileCache
 
 
@@ -80,14 +83,21 @@ tile_cache = TileCache(
 features = FeatureSettings(
     Path(settings.database_path).with_name("feature-settings.json"),
     radio_enabled=settings.radio_enabled,
-    dialogue_enabled=True,
+    dialogue_enabled=False,
     dialogue_llm_enabled=settings.dialogue_llm_enabled,
+    enrichment_enabled=settings.enrichment_enabled or settings.enrichment_on_demand,
 )
+services = ServiceAvailability(settings.dialogue_asr_url, settings.dialogue_ollama_url,
+                               settings.dialogue_ollama_model, settings.dialogue_asr_health_url)
+
+
+def feature_snapshot() -> dict:
+    return {**features.snapshot(), "availability": services.cached()}
 
 
 def live_snapshot() -> dict:
     live_data = live_store.snapshot() if settings.realtime_first else database.live_aircraft()
-    if settings.enrichment_enabled:
+    if settings.enrichment_enabled and features.enabled("enrichment_enabled"):
         enricher.schedule_contacts(
             (aircraft["icao"], aircraft.get("callsign"))
             for aircraft in live_data["aircraft"]
@@ -99,7 +109,7 @@ def realtime_snapshot() -> dict:
     live_data = live_snapshot()
     return {
         "type": "snapshot",
-        "settings": features.snapshot(),
+        "settings": feature_snapshot(),
         "live": live_data,
         "stats": live_store.stats() if settings.realtime_first else database.stats(),
     }
@@ -113,6 +123,9 @@ hardware_photo_viewer_active = False
 def hardware_dialogue_status() -> tuple[str | None, str, str]:
     if not features.enabled("dialogue_enabled"):
         return None, "Voice questions are disabled in Settings.", "disabled"
+    availability = services.check()["dialogue_enabled"]
+    if not availability["available"]:
+        return None, availability["reason"], "service_unavailable"
     active_aircraft = live_snapshot().get("aircraft", [])
     if not active_aircraft:
         return None, "No aircraft are currently available. Wait for an aircraft signal.", "no_aircraft"
@@ -127,10 +140,15 @@ def hardware_dialogue_status() -> tuple[str | None, str, str]:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     features.load()
+    availability = await asyncio.to_thread(services.check, True)
+    unavailable = {name: False for name, service in availability.items()
+                   if features.enabled(name) and not service["available"]}
+    if unavailable:
+        features.update(FeatureUpdate(**unavailable))
     database.initialize()
     live_store.hydrate(database.latest_state())
-    if settings.enrichment_enabled or settings.enrichment_on_demand:
-        enricher.start(database.enrichment_candidates() if settings.enrichment_enabled else ())
+    enricher.enabled = features.enabled("enrichment_enabled")
+    enricher.start(database.enrichment_candidates() if settings.enrichment_enabled and enricher.enabled else ())
     await live_hub.start()
     try:
         yield
@@ -141,7 +159,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="SkyTrace ADS-B",
-    version="1.5.1",
+    version="1.5.3",
     docs_url=None,
     redoc_url=None,
     lifespan=lifespan,
@@ -178,7 +196,7 @@ def require_ingest_key(authorization: str | None = Header(default=None)) -> None
 
 @app.get("/", include_in_schema=False)
 def index() -> FileResponse:
-    return FileResponse(static_dir / "index.html")
+    return FileResponse(static_dir / "index.html", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/healthz")
@@ -236,7 +254,8 @@ def can_edit_settings(request: Request) -> bool:
 
 @app.get("/api/v1/settings")
 def get_feature_settings(request: Request) -> dict:
-    return {**features.snapshot(), "editable": can_edit_settings(request)}
+    services.check(force=True)
+    return {**feature_snapshot(), "editable": can_edit_settings(request)}
 
 
 @app.patch("/api/v1/settings")
@@ -248,12 +267,18 @@ async def update_feature_settings(request: Request, changes: FeatureUpdate) -> d
         request.headers.get("origin") and request.headers["origin"].rstrip("/") != str(request.base_url).rstrip("/")
     ):
         raise HTTPException(status_code=403, detail="cross-origin settings update denied")
+    if changes.dialogue_enabled is True or changes.dialogue_llm_enabled is True:
+        availability = await asyncio.to_thread(services.check, True)
+        for name in ("dialogue_enabled", "dialogue_llm_enabled"):
+            if getattr(changes, name) is True and not availability[name]["available"]:
+                return JSONResponse({**feature_snapshot(), "detail": availability[name]["reason"]}, status_code=409)
     def save():
         with features.lock:
             result = features.update(changes)
-            if not features.enabled("radio_enabled") or changes.dialogue_enabled is False:
+            enricher.enabled = features.enabled("enrichment_enabled")
+            if changes.radio_enabled is False or changes.dialogue_enabled is False:
                 cancel_radio_session()
-            return result
+            return {**result, "availability": services.cached()}
     try:
         result = await asyncio.to_thread(save)
     except OSError as exc:
@@ -320,7 +345,7 @@ async def hardware_stop_radio(request: Request) -> dict:
     if stopped_icao:
         global hardware_selected_icao
         hardware_selected_icao = stopped_icao
-    selected_icao, message, reason = hardware_dialogue_status()
+    selected_icao, message, reason = await asyncio.to_thread(hardware_dialogue_status)
     return {
         "stopped": bool(stopped_icao),
         "icao": stopped_icao,
@@ -393,7 +418,7 @@ def hardware_dialogue(
     if not transcript:
         answer = "I did not copy that. Please ask again."
         mode = "fixed"
-    elif features.enabled("dialogue_llm_enabled"):
+    elif features.enabled("dialogue_llm_enabled") and services.check()["dialogue_llm_enabled"]["available"]:
         try:
             answer = ollama_pilot_answer(
                 settings.dialogue_ollama_url,
@@ -444,7 +469,7 @@ async def ingest(batch: IngestBatch) -> dict:
     live_result = live_store.ingest(batch) if settings.realtime_first else None
     result = await asyncio.to_thread(database.ingest, batch)
     if not result.get("duplicate"):
-        if settings.enrichment_enabled:
+        if settings.enrichment_enabled and features.enabled("enrichment_enabled"):
             contacts = [(aircraft.icao, aircraft.callsign) for aircraft in batch.aircraft]
             contacts.extend(
                 (message.icao, None) for message in batch.messages if message.icao
@@ -524,7 +549,7 @@ def aircraft_enrichment(
     enrichment = database.aircraft_enrichment(normalized, cleaned_callsign)
     payload = {"icao": normalized, "callsign": cleaned_callsign}
     payload.update({key: value for key, value in enrichment.items() if value is not None})
-    if settings.enrichment_enabled or settings.enrichment_on_demand:
+    if features.enabled("enrichment_enabled"):
         enricher.schedule_contacts(
             [(normalized, cleaned_callsign)]
         )
@@ -542,7 +567,7 @@ def _radio_aircraft_payload(icao: str) -> dict | None:
     if result is None:
         return None
     aircraft = dict(result["aircraft"])
-    if settings.enrichment_enabled or settings.enrichment_on_demand:
+    if features.enabled("enrichment_enabled"):
         enricher.schedule_contacts([(icao, aircraft.get("callsign"))])
     enrichment = database.aircraft_enrichment(icao, aircraft.get("callsign"))
     aircraft.update({key: value for key, value in enrichment.items() if value is not None})
@@ -552,6 +577,20 @@ def _radio_aircraft_payload(icao: str) -> dict | None:
 def _play_radio_segment(aircraft: dict, session, segment: str, text: str, chirp: bool) -> dict:
     if not features.enabled("radio_enabled") or session.cancelled.is_set():
         return {"played": False, "reason": "disabled or cancelled"}
+    caption_id = uuid.uuid4().hex
+
+    def publish_caption(active: bool) -> None:
+        if segment == "dialogue":
+            return  # Pilot questions already have their own answer subtitles.
+        if active and (session.cancelled.is_set() or not features.enabled("radio_enabled")):
+            return
+        live_hub.broadcast_from_thread({
+            "type": "radio_subtitle", "id": caption_id, "active": active,
+            "icao": aircraft.get("icao"), "callsign": aircraft.get("callsign"),
+            "segment": segment, "text": text if active else "",
+            "cancelled": session.cancelled.is_set(),
+        })
+
     result = play_radio_text(
         aircraft,
         text,
@@ -565,6 +604,7 @@ def _play_radio_segment(aircraft: dict, session, segment: str, text: str, chirp:
         chirp=chirp,
         tts_http_url=settings.radio_tts_http_url,
         tts_length_scale=settings.radio_tts_length_scale,
+        on_playback=publish_caption,
     )
     if result.get("played"):
         print(
@@ -595,20 +635,23 @@ def _radio_sleep(session, seconds: float) -> bool:
     return not session.cancelled.wait(seconds)
 
 
-def _play_radio_background(icao: str, aircraft: dict, session) -> None:
+def _play_radio_background(icao: str, aircraft: dict, session, speak: bool = True) -> None:
     try:
+        result = play_radio_chirp(session=session, audio_device=settings.radio_audio_device, tmp_dir=settings.radio_tmp_dir)
+        if not result.get("played") or not speak or session.cancelled.is_set():
+            return
         intro_result = _play_radio_segment(
             aircraft,
             session,
             "intro",
             radio_intro_text(aircraft),
-            True,
+            False,
         )
         if session.cancelled.is_set() or not intro_result.get("played"):
             return
 
         route_aircraft = aircraft
-        if not has_confirmed_route(route_aircraft):
+        if features.enabled("enrichment_enabled") and not has_confirmed_route(route_aircraft):
             for delay in (0.3, 0.7, 1.2, 1.8, 2.5, 3.5):
                 if not _radio_sleep(session, delay):
                     return
@@ -633,8 +676,6 @@ def _play_radio_background(icao: str, aircraft: dict, session) -> None:
 
 @app.post("/api/v1/aircraft/{icao}/radio")
 def aircraft_radio(icao: str) -> dict:
-    if not features.enabled("radio_enabled"):
-        raise HTTPException(status_code=503, detail="radio playback disabled")
     normalized = normalize_icao(icao)
     global hardware_selected_icao
     hardware_selected_icao = normalized
@@ -642,8 +683,7 @@ def aircraft_radio(icao: str) -> dict:
     if aircraft is None:
         raise HTTPException(status_code=404, detail="aircraft not found")
     with features.lock:
-        if not features.enabled("radio_enabled"):
-            raise HTTPException(status_code=503, detail="radio playback disabled")
+        speak = features.enabled("radio_enabled")
         session, created = begin_radio_session(normalized)
     if not created:
         return {
@@ -654,13 +694,14 @@ def aircraft_radio(icao: str) -> dict:
         }
     thread = threading.Thread(
         target=_play_radio_background,
-        args=(normalized, aircraft, session),
+        args=(normalized, aircraft, session, speak),
         name=f"skytrace-radio-{normalized}",
         daemon=True,
     )
     thread.start()
     return {
         "queued": True,
+        "speech": speak,
         "icao": normalized,
         "callsign": aircraft.get("callsign"),
     }

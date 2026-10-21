@@ -49,6 +49,7 @@ class Settings:
     radio_tts_http_url: str
     radio_tts_length_scale: float
     dialogue_asr_url: str
+    dialogue_asr_health_url: str
     dialogue_llm_enabled: bool
     dialogue_ollama_url: str
     dialogue_ollama_model: str
@@ -100,12 +101,11 @@ class Settings:
             radio_tmp_dir=os.getenv("RADIO_TMP_DIR", "/tmp"),
             radio_tts_http_url=os.getenv("RADIO_TTS_HTTP_URL", "").rstrip("/"),
             radio_tts_length_scale=float(os.getenv("RADIO_TTS_LENGTH_SCALE", "1.0")),
-            dialogue_asr_url=os.getenv(
-                "DIALOGUE_ASR_URL", "http://faster-whisper:8803/recognize"
-            ),
+            dialogue_asr_url=os.getenv("DIALOGUE_ASR_URL", ""),
+            dialogue_asr_health_url=os.getenv("DIALOGUE_ASR_HEALTH_URL", ""),
             dialogue_llm_enabled=_bool_env("DIALOGUE_LLM_ENABLED", False),
             dialogue_ollama_url=os.getenv(
-                "DIALOGUE_OLLAMA_URL", "http://ollama:11434"
+                "DIALOGUE_OLLAMA_URL", ""
             ).rstrip("/"),
             dialogue_ollama_model=os.getenv("DIALOGUE_OLLAMA_MODEL", "gemma4:e2b"),
             kiosk_close_request_path=os.getenv(

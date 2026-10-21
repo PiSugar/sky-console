@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import math
+import subprocess
 import tempfile
 import unittest
 import wave
 from array import array
+from unittest.mock import patch
 
 from server.app.radio import (
     begin_radio_session,
     cancel_radio_session,
     finish_radio_session,
     is_radio_playing,
+    play_radio_text,
     radio_intro_text,
     radio_route_text,
     radio_text,
@@ -20,6 +23,47 @@ from server.app.radio import (
 
 
 class RadioTests(unittest.TestCase):
+    def test_subtitles_follow_synthesized_speech_and_end_on_playback_failure(self) -> None:
+        for fail in (False, True):
+            with self.subTest(fail=fail), tempfile.TemporaryDirectory() as directory:
+                session, _ = begin_radio_session("ABC123")
+                events = []
+
+                def run(args, **kwargs):
+                    events.append(args[0])
+                    if args[0] == "aplay" and fail:
+                        raise subprocess.SubprocessError("audio unavailable")
+
+                try:
+                    with patch("server.app.radio._synthesize_http", side_effect=lambda *args: events.append("tts")), patch("server.app.radio._run_cancelable", side_effect=run):
+                        result = play_radio_text(
+                            {"icao": "ABC123"}, "Exact spoken text", session=session,
+                            segment="intro", tts_command="piper", voice_model="unused",
+                            voice_config="unused", audio_device="default", tmp_dir=directory,
+                            tts_http_url="http://tts", on_playback=lambda active: events.append(active),
+                        )
+                    self.assertEqual(events, ["tts", "sox", True, "aplay", False])
+                    self.assertEqual(result["played"], not fail)
+                finally:
+                    finish_radio_session(session)
+
+    def test_cancel_during_synthesis_does_not_publish_subtitles(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            session, _ = begin_radio_session("ABC123")
+            try:
+                with patch("server.app.radio._synthesize_http", side_effect=lambda *args: session.cancel()), patch("server.app.radio._run_cancelable"), patch("builtins.print"):
+                    events = []
+                    result = play_radio_text(
+                        {"icao": "ABC123"}, "Stale text", session=session,
+                        segment="route", tts_command="piper", voice_model="unused",
+                        voice_config="unused", audio_device="default", tmp_dir=directory,
+                        tts_http_url="http://tts", on_playback=events.append,
+                    )
+                self.assertFalse(result["played"])
+                self.assertEqual(events, [])
+            finally:
+                finish_radio_session(session)
+
     def test_duplicate_session_for_same_aircraft_is_reused(self) -> None:
         first, first_created = begin_radio_session("7823B7")
         duplicate, duplicate_created = begin_radio_session("7823B7")

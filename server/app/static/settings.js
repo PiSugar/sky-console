@@ -6,6 +6,7 @@
   let values = null;
   let revision = -1;
   let editable = false;
+  let availability = {};
   let busy = false;
   let opener = null;
   let loadRequest = 0;
@@ -13,16 +14,21 @@
   function render() {
     switches.forEach((input) => {
       input.checked = Boolean(values?.[input.name]);
-      input.disabled = busy || !editable || !values;
+      const service = availability[input.name];
+      input.disabled = busy || !editable || !values || (service?.available === false && !input.checked);
+      const note = document.querySelector(`#${input.name}-availability`);
+      if (note) note.textContent = service?.reason || "Checking service availability…";
     });
     document.querySelector("#settings-llm-note").hidden = !values || values.dialogue_enabled;
     panel.setAttribute("aria-busy", String(busy));
+    document.querySelector("#settings-check-services").disabled = busy;
   }
 
   function apply(data) {
     if (!data?.features || !Number.isInteger(data.revision) || data.revision < revision) return;
     values = data.features;
     revision = data.revision;
+    if (data.availability) availability = data.availability;
     if (typeof data.editable === "boolean") editable = data.editable;
     render();
   }
@@ -66,10 +72,12 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(change),
       });
-      if (!response.ok) throw new Error(response.status === 403
-        ? "Open Settings on the device to make changes."
-        : "Settings could not be saved. Please retry.");
-      apply(await response.json());
+      const data = await response.json();
+      if (!response.ok) {
+        apply(data);
+        throw new Error(typeof data.detail === "string" ? data.detail : "Settings could not be saved. Please retry.");
+      }
+      apply(data);
       feedback.textContent = "Saved on this device.";
     } catch (error) {
       feedback.textContent = error instanceof TypeError
@@ -99,10 +107,11 @@
       || event.clientY < bounds.top || event.clientY > bounds.bottom)) panel.close();
   });
   retry.addEventListener("click", load);
+  document.querySelector("#settings-check-services").addEventListener("click", load);
   window.skyTraceSettings = {
     apply,
     isOpen: () => panel.open,
-    enabled: (name) => values?.[name] === true,
+    enabled: (name) => values?.[name] === true && availability[name]?.available !== false,
     reconnect: () => { revision = -1; if (!busy) load(); },
   };
   load();

@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, StrictBool
 class FeatureUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    enrichment_enabled: StrictBool | None = None
     radio_enabled: StrictBool | None = None
     dialogue_enabled: StrictBool | None = None
     dialogue_llm_enabled: StrictBool | None = None
@@ -22,7 +23,7 @@ class FeatureSettings:
     def __init__(self, path: Path, **defaults: bool):
         self.path = path
         self.lock = threading.RLock()
-        self._values = dict(defaults)
+        self._values = {"enrichment_enabled": True, **defaults}
         self.revision = 0
         self.audio_epoch = 0
 
