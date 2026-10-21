@@ -49,7 +49,7 @@ class HardwareBridgeTests(unittest.TestCase):
             self.assertTrue(hardware_bridge.read_signal_active(state.name))
 
         source = MODULE_PATH.read_text(encoding="utf-8")
-        self.assertIn("/home/pi/adsb-tracker/run/readsb/aircraft.json", source)
+        self.assertIn("/home/pi/sky-tracker/run/readsb/aircraft.json", source)
 
     def test_audio_meter_reads_fresh_waveform_level(self) -> None:
         with tempfile.NamedTemporaryFile() as meter:

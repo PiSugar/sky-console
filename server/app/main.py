@@ -21,7 +21,7 @@ from fastapi import (
     WebSocketDisconnect,
     status,
 )
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .config import Settings
@@ -29,6 +29,7 @@ from .db import Database
 from .decoder import decode_mode_s
 from .dialogue import fixed_pilot_answer, ollama_pilot_answer, recognize_question
 from .enrichment import EnrichmentService
+from .feature_settings import FeatureSettings, FeatureUpdate
 from .live_store import LiveStore
 from .models import (
     HardwareControlEvent,
@@ -48,6 +49,7 @@ from .radio import (
     radio_route_text,
 )
 from .realtime import LiveHub
+from .tile_cache import TileCache
 
 
 settings = Settings.from_env()
@@ -70,6 +72,17 @@ enricher = EnrichmentService(
     timeout_seconds=settings.enrichment_timeout_seconds,
 )
 static_dir = Path(__file__).parent / "static"
+tile_cache = TileCache(
+    settings.map_tile_cache_path,
+    settings.map_tile_cache_max_mb * 1024 * 1024,
+    settings.public_base_url,
+)
+features = FeatureSettings(
+    Path(settings.database_path).with_name("feature-settings.json"),
+    radio_enabled=settings.radio_enabled,
+    dialogue_enabled=True,
+    dialogue_llm_enabled=settings.dialogue_llm_enabled,
+)
 
 
 def live_snapshot() -> dict:
@@ -86,6 +99,7 @@ def realtime_snapshot() -> dict:
     live_data = live_snapshot()
     return {
         "type": "snapshot",
+        "settings": features.snapshot(),
         "live": live_data,
         "stats": live_store.stats() if settings.realtime_first else database.stats(),
     }
@@ -97,6 +111,8 @@ hardware_photo_viewer_active = False
 
 
 def hardware_dialogue_status() -> tuple[str | None, str, str]:
+    if not features.enabled("dialogue_enabled"):
+        return None, "Voice questions are disabled in Settings.", "disabled"
     active_aircraft = live_snapshot().get("aircraft", [])
     if not active_aircraft:
         return None, "No aircraft are currently available. Wait for an aircraft signal.", "no_aircraft"
@@ -110,6 +126,7 @@ def hardware_dialogue_status() -> tuple[str | None, str, str]:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    features.load()
     database.initialize()
     live_store.hydrate(database.latest_state())
     if settings.enrichment_enabled or settings.enrichment_on_demand:
@@ -124,7 +141,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="SkyTrace ADS-B",
-    version="1.5.0",
+    version="1.5.1",
     docs_url=None,
     redoc_url=None,
     lifespan=lifespan,
@@ -134,7 +151,7 @@ app.mount("/assets", StaticFiles(directory=static_dir), name="assets")
 
 @app.middleware("http")
 async def api_headers(request: Request, call_next):
-    if request.method == "POST":
+    if request.method in {"POST", "PATCH"}:
         content_length = request.headers.get("content-length")
         if content_length:
             try:
@@ -169,6 +186,20 @@ def health() -> dict:
     return {**database.health(), "version": app.version}
 
 
+@app.get("/tiles/{source}/{z}/{x}/{y}.png", include_in_schema=False)
+def map_tile(source: str, z: int, x: int, y: int, request: Request) -> Response:
+    try:
+        tile = tile_cache.get(source, z, x, y, request.headers.get("referer", ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="invalid map tile") from exc
+    except OSError as exc:
+        raise HTTPException(status_code=502, detail="map tile provider unavailable") from exc
+    return Response(
+        tile.body, media_type=tile.content_type,
+        headers={"Cache-Control": tile.browser_cache_control()},
+    )
+
+
 def close_kiosk_process() -> None:
     request_path = Path(settings.kiosk_close_request_path)
     request_path.parent.mkdir(parents=True, exist_ok=True)
@@ -193,6 +224,43 @@ def is_local_or_docker_request(request: Request) -> bool:
         isinstance(address, ipaddress.IPv4Address)
         and address in ipaddress.ip_network("172.16.0.0/12")
     )
+
+
+def can_edit_settings(request: Request) -> bool:
+    authorization = request.headers.get("authorization", "")
+    return is_local_or_docker_request(request) or (
+        authorization.startswith("Bearer ")
+        and hmac.compare_digest(authorization[7:], settings.ingest_api_key)
+    )
+
+
+@app.get("/api/v1/settings")
+def get_feature_settings(request: Request) -> dict:
+    return {**features.snapshot(), "editable": can_edit_settings(request)}
+
+
+@app.patch("/api/v1/settings")
+async def update_feature_settings(request: Request, changes: FeatureUpdate) -> dict:
+    if not can_edit_settings(request):
+        raise HTTPException(status_code=403, detail="Change settings on the device or use an authorized API client.")
+    # JSON-only mutations reject cross-origin form submissions, including on the kiosk.
+    if request.headers.get("sec-fetch-site") == "cross-site" or (
+        request.headers.get("origin") and request.headers["origin"].rstrip("/") != str(request.base_url).rstrip("/")
+    ):
+        raise HTTPException(status_code=403, detail="cross-origin settings update denied")
+    def save():
+        with features.lock:
+            result = features.update(changes)
+            if not features.enabled("radio_enabled") or changes.dialogue_enabled is False:
+                cancel_radio_session()
+            return result
+    try:
+        result = await asyncio.to_thread(save)
+    except OSError as exc:
+        logger.warning("feature settings save failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Settings could not be saved. Please retry.") from exc
+    await live_hub.broadcast({"type": "settings", **result})
+    return {**result, "editable": True}
 
 
 @app.post("/api/v1/kiosk/close", include_in_schema=False)
@@ -276,8 +344,11 @@ def hardware_dialogue_availability(request: Request) -> dict:
     }
 
 
-def play_pilot_dialogue(icao: str, aircraft: dict, answer: str) -> None:
-    session, _ = begin_radio_session(icao)
+def play_pilot_dialogue(icao: str, aircraft: dict, answer: str, audio_epoch: int) -> None:
+    with features.lock:
+        if not features.enabled("radio_enabled") or not features.enabled("dialogue_enabled") or features.audio_epoch != audio_epoch:
+            return
+        session, _ = begin_radio_session(icao)
     try:
         _play_radio_segment(aircraft, session, "dialogue", answer, True)
     finally:
@@ -310,15 +381,19 @@ def hardware_dialogue(
     aircraft = _radio_aircraft_payload(icao)
     if aircraft is None:
         raise HTTPException(status_code=404, detail="selected aircraft is no longer available")
+    with features.lock:
+        audio_epoch = features.audio_epoch
     try:
         transcript = recognize_question(settings.dialogue_asr_url, question.audio_base64)
     except (OSError, urllib.error.URLError, ValueError) as exc:
         logger.warning("pilot ASR failed: %s", exc)
         transcript = ""
+    if not features.enabled("dialogue_enabled"):
+        raise HTTPException(status_code=409, detail="Voice questions are disabled in Settings.")
     if not transcript:
         answer = "I did not copy that. Please ask again."
         mode = "fixed"
-    elif settings.dialogue_llm_enabled:
+    elif features.enabled("dialogue_llm_enabled"):
         try:
             answer = ollama_pilot_answer(
                 settings.dialogue_ollama_url,
@@ -334,15 +409,22 @@ def hardware_dialogue(
     else:
         answer = fixed_pilot_answer(transcript, aircraft)
         mode = "fixed"
+    if not features.enabled("dialogue_enabled"):
+        raise HTTPException(status_code=409, detail="Voice questions are disabled in Settings.")
+    if mode == "llm" and not features.enabled("dialogue_llm_enabled"):
+        answer = fixed_pilot_answer(transcript, aircraft)
+        mode = "fixed"
+    queued = features.enabled("radio_enabled") and features.audio_epoch == audio_epoch
     background_tasks.add_task(broadcast_pilot_subtitles, transcript, answer, mode)
-    background_tasks.add_task(play_pilot_dialogue, icao, aircraft, answer)
+    if queued:
+        background_tasks.add_task(play_pilot_dialogue, icao, aircraft, answer, audio_epoch)
     return {
         "icao": icao,
         "question": transcript,
         "answer": answer,
         "mode": mode,
         "played": False,
-        "queued": True,
+        "queued": queued,
     }
 
 
@@ -468,6 +550,8 @@ def _radio_aircraft_payload(icao: str) -> dict | None:
 
 
 def _play_radio_segment(aircraft: dict, session, segment: str, text: str, chirp: bool) -> dict:
+    if not features.enabled("radio_enabled") or session.cancelled.is_set():
+        return {"played": False, "reason": "disabled or cancelled"}
     result = play_radio_text(
         aircraft,
         text,
@@ -549,7 +633,7 @@ def _play_radio_background(icao: str, aircraft: dict, session) -> None:
 
 @app.post("/api/v1/aircraft/{icao}/radio")
 def aircraft_radio(icao: str) -> dict:
-    if not settings.radio_enabled:
+    if not features.enabled("radio_enabled"):
         raise HTTPException(status_code=503, detail="radio playback disabled")
     normalized = normalize_icao(icao)
     global hardware_selected_icao
@@ -557,7 +641,10 @@ def aircraft_radio(icao: str) -> dict:
     aircraft = _radio_aircraft_payload(normalized)
     if aircraft is None:
         raise HTTPException(status_code=404, detail="aircraft not found")
-    session, created = begin_radio_session(normalized)
+    with features.lock:
+        if not features.enabled("radio_enabled"):
+            raise HTTPException(status_code=503, detail="radio playback disabled")
+        session, created = begin_radio_session(normalized)
     if not created:
         return {
             "queued": False,

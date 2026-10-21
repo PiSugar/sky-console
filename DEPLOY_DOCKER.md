@@ -2,6 +2,29 @@
 
 The Raspberry Pi deployment is defined by the root `docker-compose.yml`. It runs the API/UI, RTL-SDR receiver, hardware bridge, and Piper TTS as containers. Faster Whisper ASR and Ollama run as separate Docker services on a Mac and are reached over Tailscale.
 
+The active source and device directory is `sky-tracker`. The old local
+`personal-projects/adsb-tracker` copy has been archived and must not be deployed.
+
+## Upgraded device (2026-10-21)
+
+The device uses `/home/pi/sky-tracker`. `/home/pi/adsb-tracker` is a compatibility
+symlink for existing mounts and launchers, not a second checkout. The existing
+device `.env` retains `COMPOSE_PROJECT_NAME=adsb-tracker` so its named volumes,
+network and running receiver remain the same. New installations use
+`COMPOSE_PROJECT_NAME=sky-tracker`. Do not change an existing Compose project name
+without migrating its volumes.
+
+Version 1.5.1 adds the device Settings panel, persistent Esri / OpenStreetMap tile
+cache and `client/watch-aircraft.sh`. Settings are stored in
+`data/feature-settings.json`; tiles in `data/map-tiles.sqlite3`. Both survive image
+rebuilds. `MAP_TILE_CACHE_MAX_MB` defaults to 512. The settings panel is available
+at the top of the normal page and via the gear button in kiosk mode.
+
+Before this upgrade, the source/configuration and desktop launcher were backed
+up to `/home/pi/skytrace-backups/20261021-1.5.1/`. The previous server image is
+retained as `skytrace-server:rollback-20261021`. The existing receiver, hardware
+and TTS containers do not need rebuilding for this upgrade.
+
 ## Configure
 
 ```sh
@@ -42,13 +65,19 @@ sudo docker compose up -d
 ## Enable Ollama pilot simulation
 
 The Ollama image plus Gemma 4 E2B requires roughly 10 GB of additional Mac
-storage. Keep at least 12 GB free before enabling it. Enable it on the Pi:
+storage. Keep at least 12 GB free before enabling it. Set the initial Pi defaults:
 
 ```env
 DIALOGUE_LLM_ENABLED=true
 DIALOGUE_OLLAMA_URL=http://100.x.y.z:8904
 DIALOGUE_OLLAMA_MODEL=gemma4:e2b
 ```
+
+After saving any preferences in **Settings**, the saved device preferences take
+precedence over the initial boolean environment defaults. Use **LLM responses**
+to toggle the model at runtime. **Voice responses** controls spoken output and
+**Voice questions** controls hardware questions. These switches do not start or
+stop the inference containers.
 
 The one-shot Mac `ollama-model-download` service downloads the selected GGUF
 with resumable 16 MiB range requests and verifies its size and SHA-256 digest.

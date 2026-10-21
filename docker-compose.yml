@@ -1,11 +1,13 @@
 services:
   adsb-server:
     build: ./server
-    image: skytrace-server:1.5.0
+    image: skytrace-server:1.5.1
     restart: unless-stopped
     ports: ["${PUBLIC_PORT:-8931}:8080"]
     environment:
       DATABASE_PATH: /data/adsb.sqlite3
+      MAP_TILE_CACHE_PATH: /data/map-tiles.sqlite3
+      MAP_TILE_CACHE_MAX_MB: ${MAP_TILE_CACHE_MAX_MB:-512}
       INGEST_API_KEY: ${INGEST_API_KEY:?set INGEST_API_KEY in .env}
       RETENTION_HOURS: ${RETENTION_HOURS:-2160}
       ACTIVE_SECONDS: ${ACTIVE_SECONDS:-90}

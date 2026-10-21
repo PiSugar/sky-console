@@ -53,6 +53,8 @@ class Settings:
     dialogue_ollama_url: str
     dialogue_ollama_model: str
     kiosk_close_request_path: str
+    map_tile_cache_path: str
+    map_tile_cache_max_mb: int
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -109,4 +111,9 @@ class Settings:
             kiosk_close_request_path=os.getenv(
                 "KIOSK_CLOSE_REQUEST_PATH", "/run/skytrace/close-kiosk"
             ),
+            map_tile_cache_path=os.getenv(
+                "MAP_TILE_CACHE_PATH",
+                os.path.join(os.path.dirname(os.getenv("DATABASE_PATH", "/data/adsb.sqlite3")), "map-tiles.sqlite3"),
+            ),
+            map_tile_cache_max_mb=_int_env("MAP_TILE_CACHE_MAX_MB", 512, 1, 10240),
         )

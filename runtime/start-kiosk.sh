@@ -3,7 +3,8 @@ set -eu
 
 SKYTRACE_URL="${SKYTRACE_KIOSK_URL:-http://127.0.0.1:8931/#live-kiosk}"
 SKYTRACE_HEALTH_URL="${SKYTRACE_HEALTH_URL:-http://127.0.0.1:8931/healthz}"
-SKYTRACE_CLOSE_MARKER="${SKYTRACE_CLOSE_MARKER:-/home/pi/adsb-tracker/runtime/state/close-kiosk}"
+SKYTRACE_RUNTIME_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+SKYTRACE_CLOSE_MARKER="${SKYTRACE_CLOSE_MARKER:-$SKYTRACE_RUNTIME_DIR/state/close-kiosk}"
 
 while ! curl -fsS --max-time 2 "$SKYTRACE_HEALTH_URL" >/dev/null 2>&1; do
   sleep 2

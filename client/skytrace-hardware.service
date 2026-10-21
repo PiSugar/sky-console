@@ -8,8 +8,8 @@ Type=simple
 User=pi
 Group=pi
 SupplementaryGroups=i2c gpio
-WorkingDirectory=/home/pi/adsb-tracker
-ExecStart=/usr/bin/python3 /home/pi/adsb-tracker/client/hardware_bridge.py
+WorkingDirectory=/home/pi/sky-tracker
+ExecStart=/usr/bin/python3 /home/pi/sky-tracker/client/hardware_bridge.py
 Restart=always
 RestartSec=2
 Environment=PYTHONUNBUFFERED=1

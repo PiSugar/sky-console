@@ -527,6 +527,7 @@ async function api(path) {
 }
 
 async function playAircraftRadio(icao) {
+  if (!window.skyTraceSettings?.enabled("radio_enabled")) return;
   const now = Date.now();
   const lastPlayedAt = state.radioClickCooldowns.get(icao) || 0;
   if (now - lastPlayedAt < 2500) return;
@@ -627,13 +628,13 @@ function createMapTileLayer(source) {
     keepBuffer: 4,
   };
   if (source === "international") {
-    return L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    return L.tileLayer("/tiles/international/{z}/{x}/{y}.png", {
       ...commonOptions,
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a>',
     });
   }
-  return L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
+  return L.tileLayer("/tiles/esri/{z}/{x}/{y}.png", {
     ...commonOptions,
     attribution: 'Tiles &copy; <a href="https://www.esri.com/" target="_blank" rel="noopener noreferrer">Esri</a>',
   });
@@ -1317,6 +1318,7 @@ function handleDialogueControl(message) {
 }
 
 function handleHardwareControl(message) {
+  if (window.skyTraceSettings?.isOpen()) return;
   if (message.action === "photo_viewer_close") {
     closePhotoViewer(false);
     return;
@@ -1357,6 +1359,7 @@ function connectLiveSocket() {
   socket.addEventListener("open", () => {
     if (socket !== state.socket) return;
     state.socketRetryAttempt = 0;
+    window.skyTraceSettings?.reconnect();
     const selectedIcao = state.quickAircraftIcao || state.selectedIcao;
     if (selectedIcao) setHardwareAircraft(selectedIcao);
   });
@@ -1364,7 +1367,11 @@ function connectLiveSocket() {
     if (socket !== state.socket) return;
     try {
       const message = JSON.parse(event.data);
-      if (message.type === "snapshot") applyLiveSnapshot(message);
+      if (message.type === "snapshot") {
+        window.skyTraceSettings?.apply(message.settings);
+        applyLiveSnapshot(message);
+      }
+      else if (message.type === "settings") window.skyTraceSettings?.apply(message);
       else if (message.type === "hardware_control") handleHardwareControl(message);
     } catch (_error) {
       showToast("Received an unrecognized live message");

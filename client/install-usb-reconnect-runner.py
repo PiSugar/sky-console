@@ -1,13 +1,13 @@
 from pathlib import Path
 
 
-path = Path("/home/pi/adsb-tracker/runtime/run-client.sh")
+path = Path("/home/pi/sky-tracker/runtime/run-client.sh")
 text = path.read_text()
 
 if "reset_sdr_usb()" not in text:
     text = text.replace(
-        "mkdir -p /home/pi/adsb-tracker/run/readsb /home/pi/adsb-tracker/data\n",
-        """mkdir -p /home/pi/adsb-tracker/run/readsb /home/pi/adsb-tracker/data
+        "mkdir -p /home/pi/sky-tracker/run/readsb /home/pi/sky-tracker/data\n",
+        """mkdir -p /home/pi/sky-tracker/run/readsb /home/pi/sky-tracker/data
 
 reset_sdr_usb() {
   if command -v sudo >/dev/null 2>&1; then

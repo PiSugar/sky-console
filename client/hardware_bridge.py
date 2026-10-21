@@ -644,7 +644,7 @@ def main() -> None:
         ),
         signal_path=os.getenv(
             "SKYTRACE_SIGNAL_PATH",
-            "/home/pi/adsb-tracker/run/readsb/aircraft.json",
+            "/home/pi/sky-tracker/run/readsb/aircraft.json",
         ),
         audio_meter_path=os.getenv(
             "SKYTRACE_RADIO_METER_PATH",

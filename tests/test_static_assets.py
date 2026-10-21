@@ -47,10 +47,8 @@ class StaticAssetTests(unittest.TestCase):
         index = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
         script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
 
-        self.assertIn("tile.openstreetmap.org", index)
-        self.assertIn("tile.openstreetmap.org", script)
-        self.assertIn("server.arcgisonline.com", index)
-        self.assertIn("World_Street_Map", script)
+        self.assertIn("/tiles/international/{z}/{x}/{y}.png", script)
+        self.assertIn("/tiles/esri/{z}/{x}/{y}.png", script)
         self.assertIn("wgs84ToGcj02", script)
         self.assertIn("gcj02ToWgs84", script)
         self.assertIn("mapDisplayPosition", script)
