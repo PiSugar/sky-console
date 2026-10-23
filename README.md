@@ -78,7 +78,9 @@ sudo sh client/watch-aircraft.sh --once
 sudo sh client/watch-aircraft.sh --json --once
 ```
 
-脚本自动识别 Compose 的 `adsb-client` 服务，直接读取 readsb 状态，无需重建接收器。每秒输出 ICAO、呼号、高度、速度、航向、经纬度及信号强度；`--interval 5` 修改刷新间隔，`--json` 输出完整 JSON，`ADSB_CONTAINER` 可指定容器。没有航空器、数据过期或文件暂不可读时会显示相应提示。
+脚本自动识别 Compose 的 `adsb-client` 服务，直接读取 readsb 状态，无需重建接收器。所有提示均为英文；在交互终端中像 `top` 一样每秒原地刷新，按 `q` 或 `Ctrl+C` 退出并恢复原终端。显示 ICAO、呼号、高度、速度、航向、经纬度及信号强度；超出窗口的行会提示隐藏数量，可扩大窗口查看。`--interval 5` 修改刷新间隔，`--once` 打印一次，`--json` 输出完整 JSON，`ADSB_CONTAINER` 可指定容器。管道和重定向使用普通文本输出，不包含屏幕控制符。没有航空器、数据过期或文件暂不可读时会显示相应提示。
+
+交互显示中，变化的单元格以浅蓝色文字高亮一个刷新周期（不改变底色）；新增飞机首次出现时整行高亮。首次打开不高亮，未变化的值使用默认文字颜色。
 
 ## 目录
 

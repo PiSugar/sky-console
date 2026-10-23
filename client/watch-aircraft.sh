@@ -3,7 +3,7 @@
 set -eu
 
 if ! command -v docker >/dev/null 2>&1; then
-  echo "未找到 Docker。请在运行 ADS-B 接收器容器的树莓派上执行此脚本。" >&2
+  echo "Docker was not found. Run this script on the Raspberry Pi hosting the ADS-B receiver." >&2
   exit 1
 fi
 
@@ -14,34 +14,42 @@ else
   receiver_container=$(docker ps --filter label=com.docker.compose.service=adsb-client --format '{{.ID}}')
   receiver_count=$(printf '%s\n' "$receiver_container" | awk 'NF {n++} END {print n+0}')
   if [ "$receiver_count" -ne 1 ]; then
-    echo "找到 $receiver_count 个接收器容器。请用 ADSB_CONTAINER 指定容器名称。" >&2
+    echo "Found $receiver_count receiver containers. Set ADSB_CONTAINER to the container name." >&2
     exit 1
   fi
 fi
 
-exec docker exec -i "$receiver_container" python - "$@" <<'PY'
+# Pass the program as an argument so stdin remains available for keyboard input.
+python_code=$(cat <<'PY'
 import argparse
 import json
 import math
 import os
 from pathlib import Path
+import select
+import shutil
+import signal
 import sys
+import termios
 import time
+import tty
 
 
 def positive_seconds(value):
     seconds = float(value)
     if not math.isfinite(seconds) or seconds <= 0:
-        raise argparse.ArgumentTypeError("刷新间隔必须是大于 0 的有限秒数")
+        raise argparse.ArgumentTypeError("refresh interval must be a finite number greater than zero")
     return seconds
 
 
-parser = argparse.ArgumentParser(description="打印接收器的 readsb 航空器状态；Ctrl+C 退出。")
-parser.add_argument("--once", action="store_true", help="只打印一次后退出")
-parser.add_argument("--json", action="store_true", help="每次输出一行完整 JSON，便于保存或管道处理")
-parser.add_argument("--interval", type=positive_seconds, default=1.0, help="刷新间隔（秒，默认 1）")
-parser.add_argument("--path", default=os.getenv("STATE_PATH", "/run/readsb/aircraft.json"), help="容器内的 readsb 状态文件路径")
+parser = argparse.ArgumentParser(description="Monitor readsb aircraft data. Press q or Ctrl+C to quit.")
+parser.add_argument("--once", action="store_true", help="print one snapshot and exit")
+parser.add_argument("--json", action="store_true", help="print one complete JSON object per line for piping or saving")
+parser.add_argument("--interval", type=positive_seconds, default=1.0, help="refresh interval in seconds (default: 1)")
+parser.add_argument("--path", default=os.getenv("STATE_PATH", "/run/readsb/aircraft.json"), help="readsb state file path inside the container")
 args = parser.parse_args()
+interactive = sys.stdin.isatty() and sys.stdout.isatty() and not (args.once or args.json)
+previous_aircraft = None
 
 
 def field(value, width, decimals=None):
@@ -55,14 +63,16 @@ def field(value, width, decimals=None):
     return f"{text[:width]:>{width}}"
 
 
-def display(snapshot):
+def snapshot_lines(snapshot):
+    global previous_aircraft
     aircraft = snapshot["aircraft"]
+    current_aircraft = {}
     now = snapshot.get("now")
-    timestamp = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(now)) if now is not None else "未知"
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(now)) if now is not None else "Unknown time"
     age = max(0, time.time() - now) if now is not None else None
-    stale = f" [警告：状态文件已 {age:.0f} 秒未更新]" if age is not None and age > 10 else ""
-    print(f"\n{timestamp} | 航空器 {len(aircraft)} 架{stale}")
-    print("   ICAO     CALLSIGN   ALT(ft)   GS(kt)  TRK(deg)        LAT         LON  RSSI(dBFS)  SEEN(s)  POS(s)  MESSAGES")
+    stale = f" [WARNING: state is {age:.0f}s old]" if age is not None and age > 10 else ""
+    lines = [f"{timestamp} | Aircraft: {len(aircraft)}{stale}",
+             "   ICAO     CALLSIGN   ALT(ft)   GS(kt)  TRK(deg)        LAT         LON  RSSI(dBFS)  SEEN(s)  POS(s)  MESSAGES"]
     for plane in sorted(aircraft, key=lambda item: str(item.get("hex", ""))):
         altitude = plane.get("alt_baro")
         if altitude is None:
@@ -80,34 +90,122 @@ def display(snapshot):
             field(plane.get("seen_pos"), 7, 1),
             field(plane.get("messages"), 10),
         ]
-        print("".join(columns))
+        identity = str(plane.get("hex", "")).upper()
+        previous = previous_aircraft.get(identity) if previous_aircraft is not None else None
+        lines.append([
+            (value, interactive and previous_aircraft is not None
+             and (previous is None or value != previous[index]))
+            for index, value in enumerate(columns)
+        ])
+        current_aircraft[identity] = columns
     if not aircraft:
-        print("当前状态文件中没有航空器，等待接收信号……")
+        lines.append("No aircraft in the current snapshot. Waiting for signals...")
+    previous_aircraft = current_aircraft
+    return lines
+
+
+def render_line(line, width=None):
+    segments = [(line, False)] if isinstance(line, str) else line
+    rendered = []
+    for text, changed in segments:
+        text = "".join(c if c.isprintable() else "?" for c in text)
+        if width is not None:
+            text = text[:width]
+            width -= len(text)
+        if text:
+            # Color only trusted, width-clipped text; always reset after each cell.
+            rendered.append(f"\x1b[38;2;135;206;250m{text}\x1b[0m" if interactive and changed else text)
+        if width == 0:
+            break
+    return "".join(rendered)
+
+
+def display(lines):
+    if not interactive:
+        print("\n".join(render_line(line) for line in lines), flush=True)
+        return
+    columns, rows = shutil.get_terminal_size()
+    capacity = max(0, rows - 1)
+    hidden = max(0, len(lines) - capacity)
+    footer = f"Refresh: {args.interval:g}s | q/Ctrl+C: quit | Light blue: updated"
+    if hidden:
+        footer += f" | {hidden} more rows (resize terminal to show)"
+    visible = lines[:capacity] + [footer]
+    # Clear each row in place; cap width/height to prevent wrapping and scrolling.
+    frame = "\r\n".join(
+        "\x1b[2K" + render_line(line, max(0, columns - 1))
+        for line in visible
+    )
+    sys.stdout.write("\x1b[H" + frame + "\x1b[J")
     sys.stdout.flush()
 
 
+def wait_for_refresh():
+    if not interactive:
+        time.sleep(args.interval)
+        return True
+    deadline = time.monotonic() + args.interval
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return True
+        if select.select([sys.stdin], [], [], remaining)[0]:
+            key = os.read(sys.stdin.fileno(), 1)
+            if not key or key.lower() == b"q":
+                return False
+
+
+def terminate(signum, frame):
+    raise SystemExit(128 + signum)
+
+
+terminal_settings = None
 try:
+    if interactive:
+        signal.signal(signal.SIGTERM, terminate)
+        signal.signal(signal.SIGHUP, terminate)
+        terminal_settings = termios.tcgetattr(sys.stdin.fileno())
+        tty.setcbreak(sys.stdin.fileno())
+        sys.stdout.write("\x1b[?1049h\x1b[?25l\x1b[2J")
+        sys.stdout.flush()
     while True:
         try:
             snapshot = json.loads(Path(args.path).read_text(encoding="utf-8"))
             if not isinstance(snapshot, dict) or not isinstance(snapshot.get("aircraft"), list):
-                raise ValueError("状态文件缺少 aircraft 数组")
+                raise ValueError("state file is missing the aircraft array")
             if not all(isinstance(plane, dict) for plane in snapshot["aircraft"]):
-                raise ValueError("aircraft 数组包含无效记录")
+                raise ValueError("aircraft array contains invalid records")
             if args.json:
                 print(json.dumps(snapshot, ensure_ascii=False), flush=True)
             else:
-                display(snapshot)
+                display(snapshot_lines(snapshot))
         except (OSError, ValueError, TypeError, OverflowError) as exc:
-            print(f"无法读取接收器状态 {args.path}：{exc}", file=sys.stderr, flush=True)
+            message = f"Cannot read receiver state {args.path}: {exc}"
+            if interactive:
+                display([message, "Waiting for receiver data..."])
+            else:
+                print(message, file=sys.stderr, flush=True)
             if args.once:
                 sys.exit(1)
         if args.once:
             break
-        time.sleep(args.interval)
+        if not wait_for_refresh():
+            break
 except KeyboardInterrupt:
     pass
 except BrokenPipeError:
     # A downstream command such as head has finished reading.
-    os._exit(0)
+    sys.stdout = open(os.devnull, "w")
+finally:
+    if terminal_settings is not None:
+        termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, terminal_settings)
+        sys.stdout.write("\x1b[0m\x1b[?25h\x1b[?1049l")
+        sys.stdout.flush()
 PY
+)
+
+docker_flags=-i
+if [ -t 0 ] && [ -t 1 ]; then
+  docker_flags=-it
+fi
+exec docker exec "$docker_flags" "$receiver_container" python -c "$python_code" "$@"
