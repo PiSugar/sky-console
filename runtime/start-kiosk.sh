@@ -13,7 +13,10 @@ done
 mkdir -p "$(dirname "$SKYTRACE_CLOSE_MARKER")"
 rm -f "$SKYTRACE_CLOSE_MARKER"
 
-angelfish "$SKYTRACE_URL" &
+chromium --ozone-platform=wayland --kiosk --no-first-run \
+  --disable-session-crashed-bubble \
+  --user-data-dir=/home/pi/.config/skytrace-chromium \
+  "$SKYTRACE_URL" &
 kiosk_pid=$!
 
 watch_for_close() {

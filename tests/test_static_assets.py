@@ -10,6 +10,15 @@ STATIC_DIR = PROJECT_DIR / "server" / "app" / "static"
 
 
 class StaticAssetTests(unittest.TestCase):
+    def test_settings_include_persistent_volume_control(self) -> None:
+        index = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        script = (STATIC_DIR / "settings.js").read_text(encoding="utf-8")
+        stylesheet = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn('type="range" name="volume_percent"', index)
+        self.assertIn("saveChange({ volume_percent: Number(volume.value) }", script)
+        self.assertIn(".settings-volume-control", stylesheet)
+
     def test_kiosk_close_uses_a_host_visible_request_marker(self) -> None:
         main_source = (PROJECT_DIR / "server" / "app" / "main.py").read_text(encoding="utf-8")
         compose = (PROJECT_DIR / "docker-compose.yml").read_text(encoding="utf-8")

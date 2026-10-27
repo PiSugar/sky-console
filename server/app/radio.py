@@ -388,7 +388,13 @@ def _synthesize_http(url: str, text: str, output_path: Path, length_scale: float
         output_path.write_bytes(response.read())
 
 
-def play_radio_chirp(*, session: RadioSession, audio_device: str, tmp_dir: str) -> dict[str, Any]:
+def _volume_factor(volume_percent: int) -> float:
+    return max(0.0, min(1.0, volume_percent / 100.0))
+
+
+def play_radio_chirp(
+    *, session: RadioSession, audio_device: str, tmp_dir: str, volume_percent: int = 100
+) -> dict[str, Any]:
     """Selection feedback is independent of speech synthesis and voice settings."""
     try:
         Path(tmp_dir).mkdir(parents=True, exist_ok=True)
@@ -396,7 +402,8 @@ def play_radio_chirp(*, session: RadioSession, audio_device: str, tmp_dir: str) 
             path = str(Path(directory) / "chirp.wav")
             _run_cancelable(
                 ["sox", "-n", "-r", "48000", "-c", "2", path,
-                 "synth", "0.07", "sine", "880", "vol", "0.16", "pad", "0", "0.04"],
+                 "synth", "0.07", "sine", "880", "vol", str(0.16 * _volume_factor(volume_percent)),
+                 "pad", "0", "0.04"],
                 session=session, timeout=5,
             )
             _run_cancelable(["aplay", "-q", "-D", audio_device, path],
@@ -420,6 +427,7 @@ def play_radio_text(
     chirp: bool = False,
     tts_http_url: str = "",
     tts_length_scale: float = 1.0,
+    volume_percent: int = 100,
     on_playback: Callable[[bool], None] | None = None,
 ) -> dict[str, Any]:
     flight = (
@@ -438,7 +446,12 @@ def play_radio_text(
             model_path = voice.model_path if Path(voice.model_path).is_file() else voice_model
             config_path = voice.config_path if Path(voice.config_path).is_file() else voice_config
             if chirp:
-                result = play_radio_chirp(session=session, audio_device=audio_device, tmp_dir=tmp_dir)
+                result = play_radio_chirp(
+                    session=session,
+                    audio_device=audio_device,
+                    tmp_dir=tmp_dir,
+                    volume_percent=volume_percent,
+                )
                 if not result.get("played"):
                     return result
             if tts_http_url:
@@ -490,6 +503,8 @@ def play_radio_text(
                     "12",
                     "gain",
                     str(voice.gain_db),
+                    "vol",
+                    str(_volume_factor(volume_percent)),
                     "pad",
                     "0.05",
                     "0.08",

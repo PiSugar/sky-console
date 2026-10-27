@@ -131,6 +131,24 @@ class RadioTests(unittest.TestCase):
         self.assertLess(envelope[0], envelope[1])
         self.assertEqual(envelope[1], 1.0)
 
+    def test_volume_is_applied_to_voice_processing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            session, _ = begin_radio_session("ABC123")
+            commands = []
+            try:
+                with patch("server.app.radio._synthesize_http"), patch("server.app.radio._run_cancelable", side_effect=lambda args, **kwargs: commands.append(args)):
+                    result = play_radio_text(
+                        {"icao": "ABC123"}, "Volume test", session=session,
+                        segment="intro", tts_command="piper", voice_model="unused",
+                        voice_config="unused", audio_device="default", tmp_dir=directory,
+                        tts_http_url="http://tts", volume_percent=35,
+                    )
+                self.assertTrue(result["played"])
+                sox = next(command for command in commands if command[0] == "sox")
+                self.assertEqual(sox[sox.index("vol") + 1], "0.35")
+            finally:
+                finish_radio_session(session)
+
 
 if __name__ == "__main__":
     unittest.main()

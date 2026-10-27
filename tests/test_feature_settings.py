@@ -19,13 +19,13 @@ class FeatureSettingsTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.path = Path(self.temp.name) / "feature-settings.json"
-        self.features = FeatureSettings(self.path, radio_enabled=True, dialogue_enabled=True, dialogue_llm_enabled=False)
+        self.features = FeatureSettings(self.path, radio_enabled=True, dialogue_enabled=True, dialogue_llm_enabled=False, volume_percent=70)
 
     def test_partial_changes_persist_across_restart(self):
         self.features.update(FeatureUpdate(dialogue_llm_enabled=True))
-        restarted = FeatureSettings(self.path, radio_enabled=False, dialogue_enabled=False, dialogue_llm_enabled=False)
+        restarted = FeatureSettings(self.path, radio_enabled=False, dialogue_enabled=False, dialogue_llm_enabled=False, volume_percent=25)
         restarted.load()
-        self.assertEqual(restarted.snapshot()["features"], dict(enrichment_enabled=True, radio_enabled=True, dialogue_enabled=True, dialogue_llm_enabled=True))
+        self.assertEqual(restarted.snapshot()["features"], dict(enrichment_enabled=True, radio_enabled=True, dialogue_enabled=True, dialogue_llm_enabled=True, volume_percent=70))
 
     def test_failed_save_keeps_previous_values(self):
         with patch("server.app.feature_settings.os.replace", side_effect=OSError("disk full")), self.assertRaises(OSError):
@@ -34,7 +34,7 @@ class FeatureSettingsTests(unittest.TestCase):
         self.assertEqual(list(self.path.parent.iterdir()), [])
 
     def test_strict_validation(self):
-        for data in [{"radio_enabled": "false"}, {"dialogue_enabled": 1}, {"unknown": True}]:
+        for data in [{"radio_enabled": "false"}, {"dialogue_enabled": 1}, {"volume_percent": 101}, {"volume_percent": 25.5}, {"unknown": True}]:
             with self.subTest(data=data), self.assertRaises(ValidationError):
                 FeatureUpdate.model_validate(data)
 
@@ -54,7 +54,7 @@ class FeatureSettingsAPITests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.features = FeatureSettings(Path(self.temp.name) / "settings.json", radio_enabled=True, dialogue_enabled=True, dialogue_llm_enabled=False)
+        self.features = FeatureSettings(Path(self.temp.name) / "settings.json", radio_enabled=True, dialogue_enabled=True, dialogue_llm_enabled=False, volume_percent=70)
         self.addCleanup(patch.stopall)
         patch.object(self.main, "features", self.features).start()
         self.availability = {name: {"available": True, "reason": "Ready"} for name in ("dialogue_enabled", "dialogue_llm_enabled")}
@@ -112,6 +112,15 @@ class FeatureSettingsAPITests(unittest.TestCase):
         self.assertTrue(response["queued"])
         self.assertFalse(response["speech"])
         self.assertFalse(thread.call_args.kwargs["args"][-1])
+
+    def test_volume_is_validated_saved_and_stops_active_audio(self):
+        with patch.object(self.main, "cancel_radio_session") as stop:
+            result = self.client.patch("/api/v1/settings", json={"volume_percent": 35})
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(result.json()["features"]["volume_percent"], 35)
+        stop.assert_called_once()
+        self.features.load()
+        self.assertEqual(self.features.value("volume_percent"), 35)
 
     def test_disabled_voice_plays_selection_chirp_without_tts(self):
         from server.app.radio import RadioSession

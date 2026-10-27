@@ -86,6 +86,7 @@ features = FeatureSettings(
     dialogue_enabled=False,
     dialogue_llm_enabled=settings.dialogue_llm_enabled,
     enrichment_enabled=settings.enrichment_enabled or settings.enrichment_on_demand,
+    volume_percent=70,
 )
 services = ServiceAvailability(settings.dialogue_asr_url, settings.dialogue_ollama_url,
                                settings.dialogue_ollama_model, settings.dialogue_asr_health_url)
@@ -276,7 +277,7 @@ async def update_feature_settings(request: Request, changes: FeatureUpdate) -> d
         with features.lock:
             result = features.update(changes)
             enricher.enabled = features.enabled("enrichment_enabled")
-            if changes.radio_enabled is False or changes.dialogue_enabled is False:
+            if changes.radio_enabled is False or changes.dialogue_enabled is False or changes.volume_percent is not None:
                 cancel_radio_session()
             return {**result, "availability": services.cached()}
     try:
@@ -604,6 +605,7 @@ def _play_radio_segment(aircraft: dict, session, segment: str, text: str, chirp:
         chirp=chirp,
         tts_http_url=settings.radio_tts_http_url,
         tts_length_scale=settings.radio_tts_length_scale,
+        volume_percent=int(features.value("volume_percent")),
         on_playback=publish_caption,
     )
     if result.get("played"):
@@ -637,7 +639,12 @@ def _radio_sleep(session, seconds: float) -> bool:
 
 def _play_radio_background(icao: str, aircraft: dict, session, speak: bool = True) -> None:
     try:
-        result = play_radio_chirp(session=session, audio_device=settings.radio_audio_device, tmp_dir=settings.radio_tmp_dir)
+        result = play_radio_chirp(
+            session=session,
+            audio_device=settings.radio_audio_device,
+            tmp_dir=settings.radio_tmp_dir,
+            volume_percent=int(features.value("volume_percent")),
+        )
         if not result.get("played") or not speak or session.cancelled.is_set():
             return
         intro_result = _play_radio_segment(

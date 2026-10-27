@@ -1,4 +1,5 @@
-FROM python:3.12-bookworm
+ARG PIPER_BASE_IMAGE=m.daocloud.io/docker.io/library/python:3.12-slim
+FROM ${PIPER_BASE_IMAGE}
 
 ARG VOICE_NAME=en_US-hfc_male-medium
 ENV PIPER_VOICE=${VOICE_NAME}

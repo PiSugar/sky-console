@@ -10,7 +10,7 @@
     />
     <title>SkyTrace · ADS-B Console</title>
     <link rel="stylesheet" href="/assets/vendor/leaflet/leaflet.css?v=1.9.4" />
-    <link rel="stylesheet" href="/assets/styles.css?v=1.5.3" />
+    <link rel="stylesheet" href="/assets/styles.css?v=1.5.4" />
   </head>
   <body>
     <div class="noise" aria-hidden="true"></div>
@@ -182,6 +182,13 @@
       </div>
       <p id="settings-description">Choose how SkyTrace responds. Changes apply to this device and are saved automatically.</p>
       <div class="settings-options">
+        <label class="settings-option settings-volume">
+          <span><strong>Volume</strong><small id="setting-volume-description">Adjust selection sounds and voice playback.</small></span>
+          <span class="settings-volume-control">
+            <output id="settings-volume-value" for="settings-volume">70%</output>
+            <input id="settings-volume" type="range" name="volume_percent" min="0" max="100" step="5" value="70" aria-describedby="setting-volume-description" disabled />
+          </span>
+        </label>
         <label class="settings-option">
           <span><strong>Flight details</strong><small id="setting-enrichment-description">Fetch airline, route and aircraft photos. When off, keep cached details and live ADS-B data.</small></span>
           <input type="checkbox" role="switch" name="enrichment_enabled" aria-describedby="setting-enrichment-description" disabled />
@@ -206,7 +213,7 @@
     <div id="kiosk-stats" class="kiosk-stats" aria-live="polite"></div>
 
     <script src="/assets/vendor/leaflet/leaflet.js?v=1.9.4"></script>
-    <script src="/assets/settings.js?v=1.5.3" defer></script>
+    <script src="/assets/settings.js?v=1.5.4" defer></script>
     <script src="/assets/app.js?v=1.5.3" defer></script>
   </body>
 </html>

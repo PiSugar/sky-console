@@ -7,7 +7,7 @@ import tempfile
 import threading
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
 
 class FeatureUpdate(BaseModel):
@@ -17,10 +17,11 @@ class FeatureUpdate(BaseModel):
     radio_enabled: StrictBool | None = None
     dialogue_enabled: StrictBool | None = None
     dialogue_llm_enabled: StrictBool | None = None
+    volume_percent: StrictInt | None = Field(default=None, ge=0, le=100)
 
 
 class FeatureSettings:
-    def __init__(self, path: Path, **defaults: bool):
+    def __init__(self, path: Path, **defaults: bool | int):
         self.path = path
         self.lock = threading.RLock()
         self._values = {"enrichment_enabled": True, **defaults}
@@ -40,6 +41,10 @@ class FeatureSettings:
 
     def enabled(self, name: str) -> bool:
         with self.lock:
+            return bool(self._values[name])
+
+    def value(self, name: str) -> bool | int:
+        with self.lock:
             return self._values[name]
 
     def update(self, changes: FeatureUpdate) -> dict:
@@ -57,7 +62,7 @@ class FeatureSettings:
             finally:
                 if temporary and os.path.exists(temporary):
                     os.unlink(temporary)
-            if values["radio_enabled"] != self._values["radio_enabled"] or values["dialogue_enabled"] != self._values["dialogue_enabled"]:
+            if any(values[name] != self._values[name] for name in ("radio_enabled", "dialogue_enabled", "volume_percent")):
                 self.audio_epoch += 1
             self._values = values
             self.revision += 1

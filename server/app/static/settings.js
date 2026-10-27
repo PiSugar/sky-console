@@ -3,6 +3,8 @@
   const feedback = document.querySelector("#settings-feedback");
   const retry = document.querySelector("#settings-retry");
   const switches = [...panel.querySelectorAll('input[role="switch"]')];
+  const volume = document.querySelector("#settings-volume");
+  const volumeValue = document.querySelector("#settings-volume-value");
   let values = null;
   let revision = -1;
   let editable = false;
@@ -19,6 +21,10 @@
       const note = document.querySelector(`#${input.name}-availability`);
       if (note) note.textContent = service?.reason || "Checking service availability…";
     });
+    const selectedVolume = Number(values?.volume_percent ?? volume.value);
+    volume.value = String(selectedVolume);
+    volumeValue.value = `${selectedVolume}%`;
+    volume.disabled = busy || !editable || !values;
     document.querySelector("#settings-llm-note").hidden = !values || values.dialogue_enabled;
     panel.setAttribute("aria-busy", String(busy));
     document.querySelector("#settings-check-services").disabled = busy;
@@ -59,8 +65,7 @@
     }
   }
 
-  switches.forEach((input) => input.addEventListener("change", async () => {
-    const change = { [input.name]: input.checked };
+  async function saveChange(change, focusTarget) {
     busy = true;
     ++loadRequest;
     retry.hidden = true;
@@ -87,9 +92,19 @@
     } finally {
       busy = false;
       render();
-      if (panel.open) input.focus();
+      if (panel.open) focusTarget.focus();
     }
+  }
+
+  switches.forEach((input) => input.addEventListener("change", () => {
+    saveChange({ [input.name]: input.checked }, input);
   }));
+  volume.addEventListener("input", () => {
+    volumeValue.value = `${volume.value}%`;
+  });
+  volume.addEventListener("change", () => {
+    saveChange({ volume_percent: Number(volume.value) }, volume);
+  });
 
   document.querySelectorAll(".settings-open").forEach((button) => button.addEventListener("click", () => {
     opener = button;
