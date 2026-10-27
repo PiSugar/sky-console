@@ -60,6 +60,24 @@ data/adsb.sqlite3（历史数据库）
 
 服务端和树莓派客户端需要一起更新。本版客户端会读取 readsb 的 `seen_pos`，分别记录“最后信号时间”和“最后位置时间”；只更新群晖而不更新客户端时，服务端会兼容旧数据，但连续航迹推算的时间精度会较低。
 
+## 屏幕与触屏旋转
+
+使用 labwc 桌面和 kanshi 输出管理的树莓派，必须同时设置显示输出方向和触摸校准矩阵。只旋转屏幕会导致触摸方向与画面不一致。在树莓派的项目目录执行：
+
+```sh
+chmod +x runtime/configure-display-rotation.sh
+./runtime/configure-display-rotation.sh 270
+sudo reboot
+```
+
+第一个参数支持 `normal`、`0`、`90`、`180` 和 `270`；默认输出为 `DSI-1`，默认触屏设备为 `Goodix Capacitive TouchScreen`。`.253` 的 Goodix 触屏由 labwc 映射到输出后无需附加旋转，所以第四个参数默认是 `0°`。仅当其他硬件的触摸传感器与显示面板原生方向不同时，才用第四个参数指定额外的触摸校准角度。输出名和触屏设备名可作为第二、第三个参数传入，例如：
+
+```sh
+./runtime/configure-display-rotation.sh 90 DSI-2 "10-005d Goodix Capacitive TouchScreen"
+```
+
+脚本会更新 `~/.config/kanshi/config` 中由 SkyTrace 管理的输出 profile，并在 `~/.config/labwc/rc.xml` 中写入对应触屏的输出映射和校准矩阵。省略第四个参数时使用单位矩阵，让触屏直接跟随 labwc 的输出映射；修改前会在同目录保留带 UTC 时间戳的备份。labwc 对已经存在的触屏不会可靠地热更新矩阵，因此执行脚本后需要重启设备。
+
 ## 地图缓存与坐标
 
 浏览时请求的 Esri / OpenStreetMap 瓦片会保存到设备本地 `data/map-tiles.sqlite3`，主地图与详情地图共用；刷新网页和重启后仍可复用。默认限制图片总量为 512 MB，可通过 `MAP_TILE_CACHE_MAX_MB` 修改，SQLite 元数据另占空间。超限时淘汰最久未使用的瓦片。
@@ -88,6 +106,7 @@ sudo sh client/watch-aircraft.sh --json --once
 sky-tracker/
 ├── deploy-synology.sh       群晖一键部署脚本
 ├── docker-compose.yml       群晖服务编排
+├── runtime/                 kiosk 启动与屏幕/触屏配置脚本
 ├── server/                  API、SQLite 和网页
 ├── client/                  树莓派 readsb 与上报程序
 ├── tests/                   解码、数据库和接口测试
