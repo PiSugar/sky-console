@@ -1,16 +1,10 @@
-# 树莓派客户端部署
+# Raspberry Pi client deployment
 
-客户端在树莓派上直接访问 RTL2832U USB 接收器，运行带 RTL-SDR 支持的 `readsb`，再把飞机状态和原始报文批量上报群晖。
+The client accesses the RTL2832U USB receiver directly on the Raspberry Pi, runs `readsb` with RTL-SDR support, and uploads aircraft states and raw messages to Synology in batches.
 
-## 1. 准备目录和配置
+## 1. Prepare the directory and configuration
 
-群晖执行 `deploy-synology.sh` 后会在项目根目录生成：
-
-```text
-client.env
-```
-
-把群晖上的 `client.env` 复制到树莓派 `client` 目录内：
+Running `deploy-synology.sh` on Synology generates `client.env` in the project root. Copy it into the Pi's `client` directory:
 
 ```text
 client/
@@ -22,70 +16,64 @@ client/
 └── deploy-client.sh
 ```
 
-建议补充接收站经纬度，这样网页能显示天线位置，也有利于某些本地 CPR 位置计算：
+Set the receiver coordinates to display the antenna on the map and support some local CPR position calculations:
 
 ```text
-RECEIVER_LAT=接收站纬度
-RECEIVER_LON=接收站经度
+RECEIVER_LAT=<receiver latitude>
+RECEIVER_LON=<receiver longitude>
 ```
 
-经纬度可以只保留小数点后 3–4 位，无需填写精确门牌位置。
+Three or four decimal places are sufficient; an exact street address is unnecessary.
 
-## 2. 一键启动
+## 2. Start the client
 
 ```sh
 cd client
 sh deploy-client.sh
 ```
 
-首次构建会从源码编译 ARM64 `readsb`，时间取决于网络和树莓派性能。后续更新通常会使用 Docker 缓存。
+The first build compiles ARM64 `readsb` from source. Build time depends on the network and Pi performance. Subsequent updates normally reuse the Docker cache.
 
-## 3. 查看状态
+## 3. Check status
 
 ```sh
 docker ps --filter name=adsb-tracker-client
 docker logs -f adsb-tracker-client
 ```
 
-正常日志包含：
+Normal logs identify the receiver and tuner:
 
 ```text
 using device #0: Generic RTL2832U
 Found Rafael Micro R820T tuner
-已连接 readsb 原始报文端口
-累计已发=...
 ```
 
-## 4. 关键配置
+The upload agent also reports its connection to readsb's raw message port and cumulative upload counts. These agent messages may appear in Chinese.
 
-| 变量 | 默认值 | 说明 |
-|---|---:|---|
-| `SERVER_URL` | `https://hive.hahapiggy.vip:8931` | 群晖 HTTPS 服务地址 |
-| `API_KEY` | 自动生成 | 上报密钥，必须与群晖一致 |
-| `RECEIVER_ID` | `devpn` | 接收站唯一 ID |
-| `UPLOAD_INTERVAL` | `5` | 上报间隔，秒 |
-| `RTL_GAIN` | `49.6` | 当前接收器实测有效增益，dB |
-| `MAX_BATCH_MESSAGES` | `2000` | 单批最多原始报文 |
-| `MAX_SPOOL_BATCHES` | `10000` | 最大离线批次数 |
+## 4. Key settings
 
-客户端离线队列保存在：
+| Variable | Default | Description |
+|---|---|---|
+| `SERVER_URL` | `https://hive.hahapiggy.vip:8931` | Synology HTTPS service URL |
+| `API_KEY` | Generated automatically | Ingest key; must match the server |
+| `RECEIVER_ID` | `devpn` | Unique receiver ID |
+| `UPLOAD_INTERVAL` | `5` | Upload interval in seconds |
+| `RTL_GAIN` | `49.6` | Gain tested with the current receiver, in dB |
+| `MAX_BATCH_MESSAGES` | `2000` | Maximum raw messages per batch |
+| `MAX_SPOOL_BATCHES` | `10000` | Maximum queued offline batches |
 
-```text
-client/data/spool.sqlite3
-```
+The offline queue is stored in `client/data/spool.sqlite3`. Uploads resume automatically when Synology becomes available.
 
-群晖恢复后会自动补传，无需手工操作。
+## 5. USB considerations
 
-## 5. USB 注意事项
+Compose maps `/dev/bus/usb` and permits USB character devices. At startup, `readsb` temporarily detaches the receiver from the DVB driver; a normal container shutdown reattaches it.
 
-Compose 会映射 `/dev/bus/usb` 并允许 USB 字符设备。`readsb` 启动时会临时从 DVB 驱动分离接收器，容器正常停止时会重新绑定。
+The client uses host networking to reach `hive.hahapiggy.vip` through the Pi's IPv6 route. The readsb raw message port binds only to `127.0.0.1:30002` and is not exposed to the LAN.
 
-客户端使用宿主网络，以便通过树莓派的 IPv6 路由访问 `hive.hahapiggy.vip`；`readsb` 的原始报文端口仍只绑定在 `127.0.0.1:30002`，不会向局域网开放。
-
-请使用以下命令正常停止：
+Stop the client normally:
 
 ```sh
 docker compose stop
 ```
 
-不要长期使用 `docker kill -s KILL` 强制结束。如果意外强制结束后设备未重新绑定，重启客户端容器仍可继续使用接收器；重启树莓派会完全恢复驱动状态。
+Avoid routinely forcing shutdown with `docker kill -s KILL`. If the device is not reattached after a forced shutdown, restarting the client container can still use the receiver. Rebooting the Pi fully restores driver state.

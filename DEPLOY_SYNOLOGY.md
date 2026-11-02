@@ -1,138 +1,138 @@
-# 群晖一键部署
+# Synology deployment
 
-## 1. 上传目录
+## 1. Upload the directory
 
-把整个 `adsb-tracker` 目录上传到群晖，例如：
+Upload the entire `adsb-tracker` directory to Synology, for example:
 
 ```text
 /volume1/docker/adsb-tracker/
 ```
 
-按照指定映射，数据库会自动创建在脚本目录的上一级：
+The configured mapping creates the database one level above the script directory:
 
 ```text
 /volume1/docker/data/abs_d/adsb.sqlite3
 ```
 
-对应的 Docker 映射为：
+Docker volume mapping:
 
 ```text
 ../data/abs_d:/data
 ```
 
-SSL 证书必须放在脚本目录旁的 `../SSL`：
+Place SSL certificates in `../SSL` beside the script directory:
 
 ```text
 /volume1/docker/SSL/privkey.pem
 /volume1/docker/SSL/fullchain.pem
 ```
 
-容器中的只读映射为：
+The container mounts them read-only:
 
 ```text
 ../SSL:/ssl:ro
 ```
 
-## 2. 执行一键脚本
+## 2. Run the deployment script
 
-通过 SSH 登录群晖后执行：
+Connect to Synology over SSH and run:
 
 ```sh
 cd /volume1/docker/adsb-tracker
 sudo sh deploy-synology.sh
 ```
 
-脚本会自动：
+The script:
 
-1. 检查 Docker 和 Compose；
-2. 创建 `.env`；
-3. 生成 64 位十六进制随机上报密钥；
-4. 创建 `../data/abs_d`；
-5. 构建并启动服务；
-6. 等待健康检查通过；
-7. 生成供树莓派使用的 `client.env`。
+1. Checks Docker and Compose.
+2. Creates `.env`.
+3. Generates a random ingest key with 64 hexadecimal characters.
+4. Creates `../data/abs_d`.
+5. Builds and starts the service.
+6. Waits for the health check to pass.
+7. Generates `client.env` for the Raspberry Pi.
 
-重复运行脚本会沿用原有 `.env` 和数据库，不会重置密钥或历史。
+Running the script again reuses the existing `.env` and database without resetting the key or history.
 
-## 3. 开放端口
+## 3. Open the port
 
-默认 HTTPS 网页和 API 地址：
+The default HTTPS web UI and API URL is:
 
 ```text
 https://hive.hahapiggy.vip:8931
 ```
 
-请在以下位置放行 TCP `8931`：
+Allow TCP `8931` in:
 
-- DSM 控制面板 → 安全性 → 防火墙；
-- 路由器 IPv6 防火墙；
-- 如果使用 IPv4，还需配置端口转发到群晖。
+- DSM Control Panel → Security → Firewall.
+- The router's IPv6 firewall.
+- For IPv4, configure port forwarding to Synology as well.
 
-实时页面使用同一端口上的 `wss://hive.hahapiggy.vip:8931/ws/v1/live`，不需要额外开放 WebSocket 端口。
+Live updates use `wss://hive.hahapiggy.vip:8931/ws/v1/live` on the same port; no additional WebSocket port is needed.
 
-若端口需要修改，可在首次部署前执行：
+To change the port before the first deployment:
 
 ```sh
-PUBLIC_PORT=你的端口 sudo -E sh deploy-synology.sh
+PUBLIC_PORT=9443 sudo -E sh deploy-synology.sh
 ```
 
-或者修改生成后的 `.env`，再重新执行脚本。
+Alternatively, edit the generated `.env` and run the script again.
 
-## 4. HTTPS 证书更新
+## 4. Renew HTTPS certificates
 
-服务端直接使用 `../SSL/privkey.pem` 和 `../SSL/fullchain.pem` 提供 HTTPS，不需要再由 DSM 反向代理终止 TLS。证书续期或替换后，重启容器使 Uvicorn 重新读取证书：
+The server serves HTTPS directly with `../SSL/privkey.pem` and `../SSL/fullchain.pem`; DSM does not need to terminate TLS through a reverse proxy. After renewing or replacing certificates, restart the container so Uvicorn reloads them:
 
 ```sh
 cd /volume1/docker/adsb-tracker
 sudo docker compose restart
 ```
 
-## 5. 常用管理命令
+## 5. Management commands
 
 ```sh
 cd /volume1/docker/adsb-tracker
 
-# 查看状态
+# Check status
 sudo docker compose ps
 
-# 查看日志
+# Follow logs
 sudo docker logs -f adsb-tracker-server
 
-# 重启
+# Restart
 sudo docker compose restart
 
-# 停止（数据库保留）
+# Stop while retaining the database
 sudo docker compose down
 
-# 更新代码后重建
+# Rebuild after updating the source
 sudo sh deploy-synology.sh
 ```
 
-健康检查：
+Health endpoint:
 
 ```text
 https://hive.hahapiggy.vip:8931/healthz
 ```
 
-正常返回：
+Example healthy response:
 
 ```json
 {"status":"ok","database":"ok","version":"1.3.4"}
 ```
 
-## 6. 数据保留与备份
+## 6. Retention and backups
 
-在 `.env` 中设置保留天数：
+Set the retention period in `.env`:
 
 ```text
 RETENTION_DAYS=90
 ```
 
-程序每小时自动清理超过保留期的原始报文和轨迹。飞机首次/最后出现时间及累计计数继续保留。
+The application removes expired raw messages and tracks every hour. Aircraft first/last seen timestamps and cumulative counts are retained.
 
-飞机注册、机型、航司和公开航线资料默认由服务端在后台查询 ADSBDB，并缓存在同一个 SQLite 数据库中。群晖需要能够出站访问 `https://api.adsbdb.com`。查询失败不会影响接收、上报或历史入库。
+The server fetches aircraft registration, type, airline, and public route information from ADSBDB in the background and caches it in the same SQLite database. Synology needs outbound access to `https://api.adsbdb.com`. Query failures do not affect reception, uploads, or historical storage.
 
-相关 `.env` 配置：
+Related `.env` settings:
 
 ```text
 ENRICHMENT_ENABLED=true
@@ -142,13 +142,13 @@ ENRICHMENT_RETRY_HOURS=6
 ENRICHMENT_TIMEOUT_SECONDS=8
 ```
 
-如不希望访问外部资料源，把 `ENRICHMENT_ENABLED` 改为 `false` 后重新运行部署脚本。
+To disable external enrichment, set `ENRICHMENT_ENABLED=false` and run the deployment script again.
 
-安全备份：
+For a safe backup:
 
 ```sh
 cd /volume1/docker/adsb-tracker
 sudo docker compose stop
-# 此时复制 ../data/abs_d 到备份位置
+# Copy ../data/abs_d to your backup location now
 sudo docker compose start
 ```

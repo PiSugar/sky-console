@@ -4,3 +4,20 @@ __pycache__/
 .pytest_cache/
 .venv/
 run/
+
+# Video files (case-insensitive extensions)
+*.[mM][pP]4
+*.[mM][oO][vV]
+*.[mM]4[vV]
+*.[mM][kK][vV]
+*.[wW][eE][bB][mM]
+*.[aA][vV][iI]
+*.[mM][pP][eE][gG]
+*.[mM][pP][gG]
+*.[mM][tT][sS]
+*.[mM]2[tT][sS]
+*.[fF][lL][vV]
+*.[wW][mM][vV]
+*.[oO][gG][vV]
+*.3[gG][pP]
+*.3[gG]2

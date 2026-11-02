@@ -1,68 +1,66 @@
-# SkyTrace ADS-B 空情台
+# SkyTrace ADS-B Console
 
-本项目统一在 `sky-tracker` 中开发和部署（远程仓库：`PiSugar/sky-console`）。旧 `personal-projects/adsb-tracker` 目录已废弃。
+This project is developed and deployed from `sky-tracker` (remote repository: `PiSugar/sky-console`). The old `personal-projects/adsb-tracker` directory is deprecated.
 
-SkyTrace 在树莓派上接收 1090 MHz ADS-B 信号，提供实时地图、航空器资料、硬件控制和可选语音 / LLM 问答。当前设备通过 Docker Compose 运行接收器、API、硬件桥接和 TTS，Mac 提供 ASR 与模型推理。网页设置和地图缓存均持久化在设备本地。
+SkyTrace receives 1090 MHz ADS-B signals on a Raspberry Pi and provides a live map, aircraft information, hardware controls, and optional voice and LLM questions. Docker Compose runs the receiver, API, hardware bridge, and TTS on the device. A Mac provides ASR and model inference. Device settings and map tiles persist locally.
 
-## 已实现功能
+## Features
 
-- 实时地图：通过 WebSocket 推送最近 90 秒仍有信号的飞机与接收站状态；以最新 ADS-B 坐标、地速、航向、更新时间持续推算短时位置，并在新报文到达时平滑校正。动画刷新率随地图缩放调整，失联过久会停止外推。可在英文 Esri 与 OpenStreetMap 底图之间切换，两种底图均直接使用 ADS-B 的 WGS-84 坐标。支持空白区域直接拖动、普通滚轮缩放以及手机触摸操作。
-- 飞机资料：后台按 ICAO 地址和呼号查询 ADSBDB，并在 SQLite 缓存注册号、制造商、机型、注册所有人、航司及公开航线资料。同时显示旅客使用的 IATA 航班号和 ADS-B 中的 ICAO 呼号；航司、出发地和目的地按浏览器语言显示，中文浏览器优先使用中文名称，未收录的本地化名称自动回退到资料源原名。地图图标的悬停信息同样包含双航班号、航司和本地化航线。
-- 手机快速信息：在触摸设备或窄屏页面点击地图飞机图标，会在地图底部显示轻量卡片，优先突出航司和机型，并附带双航班号、高度、速度及航向；点击“详细资料”才打开完整抽屉，点击地图空白处可快速收起。
-- 历史档案：按 ICAO、呼号、注册号、制造商、机型、所有人或航司搜索曾经接收到的飞机。
-- 飞机详情：查看历史航迹、累计报文量，以及逐条 Mode S / ADS-B 报文的位字段、解析值、中文含义、CRC 和学习提示。
-- 可靠上报：树莓派按批次上传；批次具备幂等 ID，网络重试不会重复入库。
-- 离线缓存：群晖或公网不可用时，批次暂存在树莓派 SQLite 队列，恢复后自动补传。
-- 数据保留：原始报文和轨迹默认保留 90 天，可在 `.env` 调整。
-- 自动恢复：服务端和客户端容器均配置 `restart: unless-stopped`。
+- **Live map:** WebSocket updates show aircraft heard within the last 90 seconds and receiver status. Short-term positions are extrapolated from the latest ADS-B coordinates, ground speed, heading, and timestamps, then smoothly corrected when new messages arrive. Animation frequency adapts to zoom, and extrapolation stops after prolonged signal loss. Switch between English Esri and OpenStreetMap basemaps; both use ADS-B WGS-84 coordinates directly. Supports dragging empty map areas, mouse-wheel zoom, and mobile touch controls.
+- **Aircraft information:** Background ADSBDB queries by ICAO address and callsign cache registration, manufacturer, type, registered owner, airline, and public route information in SQLite. Both passenger-facing IATA flight numbers and ADS-B ICAO callsigns are displayed. Airline and airport names follow the browser language, preferring Chinese names for Chinese browsers and falling back to source names when translations are unavailable. Map tooltips include both flight numbers, airline, and localized routes.
+- **Mobile quick information:** Tapping an aircraft on a touch device or narrow screen opens a compact card at the bottom of the map. It emphasizes airline and aircraft type, with both flight numbers, altitude, speed, and heading. Tap **Flight details** to open the full drawer or an empty map area to dismiss the card.
+- **Historical records:** Search previously received aircraft by ICAO address, callsign, registration, manufacturer, type, owner, or airline.
+- **Aircraft details:** Inspect historical tracks, cumulative message counts, and individual Mode S / ADS-B messages, including bit fields, decoded values, Chinese explanations, CRC, and learning tips.
+- **Reliable uploads:** The Pi uploads batches with idempotent IDs, preventing duplicate records on network retries.
+- **Offline queue:** When the Synology server or network is unavailable, batches remain in a local SQLite queue and upload automatically after recovery.
+- **Retention:** Raw messages and tracks are retained for 90 days by default, configurable in `.env`.
+- **Automatic recovery:** Server and client containers use `restart: unless-stopped`.
 
-## 功能设置
+## Feature settings
 
-普通页面顶部的 **Settings** 和全屏地图右上角常驻的 **⚙ Settings** 按钮可打开设备设置面板，选中飞机后仍可使用：
+Open device settings with **Settings** at the top of the normal page or the persistent **⚙ Settings** button at the top right of the full-screen map. Settings remain accessible after selecting an aircraft.
 
-- **Flight details**：获取航司、航线和飞机照片，位于第一项；关闭后停止新的外部查询，已有缓存和实时 ADS-B 数据保留。已发出的请求可能完成。
-- **Voice responses**：开关飞机语音播报和问答语音；关闭时停止正在播放的语音，但选中飞机的提示音保留，问答仍显示文字。
-- **Voice questions**：开关硬件长按提问；关闭后不再进行语音识别或生成回答。
-- **LLM responses**：开关模型应答；关闭或模型请求失败时使用固定模板回答。关闭语音提问时保留此选择，重新开启提问后继续生效。
+- **Flight details:** The first switch controls airline, route, and aircraft photo lookups. Disabling it stops new external queries while preserving cached information and live ADS-B data. Requests already in progress may finish.
+- **Voice responses:** Controls aircraft introductions and spoken answers. Disabling it stops current speech but preserves the aircraft selection beep and text answers.
+- **Voice questions:** Controls questions triggered by holding the hardware button. Disabling it stops speech recognition and answer generation.
+- **LLM responses:** Controls model-generated answers. When disabled or a model request fails, fixed response templates are used. This preference is retained when voice questions are disabled and applies again when they are enabled.
 
-设置即时保存到历史数据库同目录的 `feature-settings.json`（Docker 中位于持久化 `/data`），无需重启，并通过 WebSocket 同步到其他页面。首次运行沿用 `RADIO_ENABLED`、`DIALOGUE_LLM_ENABLED` 和详情获取的部署默认值，语音提问默认关闭；保存后以面板设置为准。模型、ASR 和音频服务仍需事先部署，开关不会启动或停止 Docker 服务。
+Settings save immediately to `feature-settings.json` alongside the history database (`/data` in Docker), require no restart, and synchronize to other pages over WebSocket. On first run, flight detail fetching, `RADIO_ENABLED`, and `DIALOGUE_LLM_ENABLED` use deployment defaults; voice questions default to disabled. Saved panel preferences take precedence afterward. Model, ASR, and audio services must be deployed separately; switches do not start or stop Docker services.
 
-开启语音提问前检查 ASR 健康接口，开启 LLM 应答前同时检查 ASR、Ollama 服务及指定模型是否已安装；未就绪的开关不可开启，并显示原因。启动检查会关闭没有就绪服务的旧开关，配置完成后点击 **Check services again** 重新检测再开启。ASR 健康地址默认是识别接口同目录的 `healthz`，也可使用 `DIALOGUE_ASR_HEALTH_URL` 指定。后端同样校验，无法通过 API 绕过；运行中服务断开时停止提问或回退固定回答。
+Before enabling voice questions, the application checks ASR health. Before enabling LLM responses, it also checks ASR, Ollama, and whether the configured model is installed. Unavailable switches remain disabled and explain why. Startup checks disable saved switches whose services are unavailable. After configuring services, click **Check services again**, then enable them. The ASR health URL defaults to `healthz` beside the recognition endpoint and can be overridden with `DIALOGUE_ASR_HEALTH_URL`. The backend enforces the same checks through the API. If a service disconnects during use, questions stop or fall back to fixed answers.
 
-沿用硬件控制的访问范围：设备本机和 Docker 内网可在面板修改，远程浏览器只读。远程管理程序可使用现有上报密钥调用 `PATCH /api/v1/settings`，请求头为 `Authorization: Bearer <INGEST_API_KEY>`，JSON 请求体仅包含要修改的布尔字段：`enrichment_enabled`、`radio_enabled`、`dialogue_enabled`、`dialogue_llm_enabled`。设置文件写入失败时保留原设置并显示错误。
+Access follows the hardware control policy: the device itself and Docker internal network can change settings; remote browsers are read-only. Remote management tools can use the existing ingest key with `PATCH /api/v1/settings`, the header `Authorization: Bearer <INGEST_API_KEY>`, and a JSON body containing only the boolean fields to update: `enrichment_enabled`, `radio_enabled`, `dialogue_enabled`, and `dialogue_llm_enabled`. If saving fails, the previous settings remain active and an error is shown.
 
-## 数据链路
+## Data flow
 
 ```text
-RTL2832U / R820T USB 接收器
+RTL2832U / R820T USB receiver
         ↓ 1090 MHz
-树莓派 readsb（校验、解码、位置计算）
-        ↓ 每 5 秒批量上报；断网写入本地队列
-树莓派 FastAPI 服务
-        ├─→ ADSBDB（仅查询飞机/航班公开资料，结果写入本地缓存）
+Raspberry Pi readsb (validation, decoding, position calculation)
+        ↓ Batch uploads every 5 seconds; local queue while offline
+Raspberry Pi FastAPI service
+        ├─→ ADSBDB (public aircraft/flight information, cached locally)
         ↓
-data/adsb.sqlite3（历史数据库）
+data/adsb.sqlite3 (history database)
         ↓
-实时地图 / 飞机档案 / 原始报文详情
+Live map / aircraft records / raw message details
 ```
 
-## 快速部署顺序
+## Quick deployment
 
-当前树莓派版本使用根目录的 Docker Compose 部署界面、硬件与 ADS-B 服务；Mac 使用 `docker-compose.asr.yml` 部署 ASR 和 Ollama，并通过 Tailscale 与树莓派连接。详见 [Docker 部署说明](DEPLOY_DOCKER.md)。不开启 LLM 时仍保留固定模板播报和长按问答。
+The current Pi deployment uses the root Docker Compose configuration for the UI, hardware, and ADS-B services. The Mac uses `docker-compose.asr.yml` for ASR and Ollama and connects to the Pi over Tailscale. See the [Docker deployment guide](DEPLOY_DOCKER.md). Fixed-template introductions and hold-to-ask questions remain available without an LLM.
 
-1. 执行 `cp .env.example .env`，至少修改 `INGEST_API_KEY`。
-2. 执行 `sudo docker compose build`。
-3. 执行 `sudo docker compose up -d`，通过 `sudo docker compose ps` 检查状态。
+1. Run `cp .env.example .env` and change at least `INGEST_API_KEY`.
+2. Run `sudo docker compose build`.
+3. Run `sudo docker compose up -d`, then check `sudo docker compose ps`.
 
-群晖的独立服务端部署方式仍保留在 [群晖部署说明](DEPLOY_SYNOLOGY.md)。
-4. 按 [树莓派部署说明](DEPLOY_RASPBERRY_PI.md) 执行 `sh deploy-client.sh`。
-5. 打开 `https://hive.hahapiggy.vip:8931`。
+The separate Synology server deployment is documented in the [Synology deployment guide](DEPLOY_SYNOLOGY.md). For that deployment, follow the [Raspberry Pi client guide](DEPLOY_RASPBERRY_PI.md) to run `sh deploy-client.sh`, then open `https://hive.hahapiggy.vip:8931`.
 
-服务端和树莓派客户端需要一起更新。本版客户端会读取 readsb 的 `seen_pos`，分别记录“最后信号时间”和“最后位置时间”；只更新群晖而不更新客户端时，服务端会兼容旧数据，但连续航迹推算的时间精度会较低。
+Update the server and Pi client together. The current client reads readsb's `seen_pos` and records the last signal time separately from the last position time. The server accepts older client data, but updating only Synology reduces timing accuracy for continuous track extrapolation.
 
-## 屏幕与触屏旋转
+## Display and touchscreen rotation
 
-使用 labwc 桌面和 kanshi 输出管理的树莓派，必须同时设置显示输出方向和触摸校准矩阵。只旋转屏幕会导致触摸方向与画面不一致。在树莓派的项目目录执行：
+On a Pi using labwc and kanshi, configure both display orientation and the touch calibration matrix. Rotating only the display leaves touch input misaligned. Run from the project directory on the Pi:
 
 ```sh
 chmod +x runtime/configure-display-rotation.sh
@@ -70,25 +68,25 @@ chmod +x runtime/configure-display-rotation.sh
 sudo reboot
 ```
 
-第一个参数支持 `normal`、`0`、`90`、`180` 和 `270`；默认输出为 `DSI-1`，默认触屏设备为 `Goodix Capacitive TouchScreen`。`.253` 的 Goodix 触屏由 labwc 映射到输出后无需附加旋转，所以第四个参数默认是 `0°`。仅当其他硬件的触摸传感器与显示面板原生方向不同时，才用第四个参数指定额外的触摸校准角度。输出名和触屏设备名可作为第二、第三个参数传入，例如：
+The first argument accepts `normal`, `0`, `90`, `180`, or `270`. The default output is `DSI-1`, and the default touch device is `Goodix Capacitive TouchScreen`. On the `.253` device, labwc's output mapping handles the Goodix touchscreen without extra rotation, so the fourth argument defaults to `0°`. Use the fourth argument only when other hardware has a touch sensor whose native orientation differs from the display panel. The second and third arguments override the output and touch device names:
 
 ```sh
 ./runtime/configure-display-rotation.sh 90 DSI-2 "10-005d Goodix Capacitive TouchScreen"
 ```
 
-脚本会更新 `~/.config/kanshi/config` 中由 SkyTrace 管理的输出 profile，并在 `~/.config/labwc/rc.xml` 中写入对应触屏的输出映射和校准矩阵。省略第四个参数时使用单位矩阵，让触屏直接跟随 labwc 的输出映射；修改前会在同目录保留带 UTC 时间戳的备份。labwc 对已经存在的触屏不会可靠地热更新矩阵，因此执行脚本后需要重启设备。
+The script updates the SkyTrace-managed output profile in `~/.config/kanshi/config` and writes the touchscreen output mapping and calibration matrix to `~/.config/labwc/rc.xml`. Omitting the fourth argument uses the identity matrix so touch follows labwc's output mapping. Before editing, the script creates backups in the same directories with UTC timestamps. Reboot afterward because labwc does not reliably apply matrix changes to existing touch devices at runtime.
 
-## 地图缓存与坐标
+## Map cache and coordinates
 
-浏览时请求的 Esri / OpenStreetMap 瓦片会保存到设备本地 `data/map-tiles.sqlite3`，主地图与详情地图共用；刷新网页和重启后仍可复用。默认限制图片总量为 512 MB，可通过 `MAP_TILE_CACHE_MAX_MB` 修改，SQLite 元数据另占空间。超限时淘汰最久未使用的瓦片。
+Esri / OpenStreetMap tiles requested while browsing are cached locally in `data/map-tiles.sqlite3`, shared by the main and detail maps and retained across page reloads and restarts. Cached image data is limited to 512 MB by default; set `MAP_TILE_CACHE_MAX_MB` to change it. SQLite metadata uses additional space. Least recently used tiles are evicted when the limit is exceeded.
 
-缓存遵守地图源的 HTTP 有效期，缺省为 7 天，过期后按 ETag / Last-Modified 更新。只下载实际浏览的区域和缩放级别；未缓存或过期区域仍需联网，缓存不代表整个应用支持离线运行。底图来源和缩放级别分别存储，切换地图不会混用。
+The cache respects each provider's HTTP expiration, defaulting to 7 days, and refreshes expired tiles using ETag / Last-Modified. Only viewed areas and zoom levels are downloaded. Uncached or expired areas still require internet access; tile caching does not make the entire application work offline. Providers and zoom levels are stored separately.
 
-当前 Esri 和 OpenStreetMap 均按 WGS-84 显示，接收站经纬度应填写 GPS / ADS-B 的原始坐标。飞机图标包含短时位置外推，与其他应用比较时须对齐时间戳。
+Both Esri and OpenStreetMap use WGS-84. Enter the receiver's original GPS / ADS-B coordinates. Aircraft icons include short-term position extrapolation, so align timestamps when comparing with other applications.
 
-## 在命令行查看航空器
+## View aircraft in the terminal
 
-在设备项目目录执行：
+Run from the project directory on the device:
 
 ```sh
 sudo sh client/watch-aircraft.sh
@@ -96,29 +94,29 @@ sudo sh client/watch-aircraft.sh --once
 sudo sh client/watch-aircraft.sh --json --once
 ```
 
-脚本自动识别 Compose 的 `adsb-client` 服务，直接读取 readsb 状态，无需重建接收器。所有提示均为英文；在交互终端中像 `top` 一样每秒原地刷新，按 `q` 或 `Ctrl+C` 退出并恢复原终端。显示 ICAO、呼号、高度、速度、航向、经纬度及信号强度；超出窗口的行会提示隐藏数量，可扩大窗口查看。`--interval 5` 修改刷新间隔，`--once` 打印一次，`--json` 输出完整 JSON，`ADSB_CONTAINER` 可指定容器。管道和重定向使用普通文本输出，不包含屏幕控制符。没有航空器、数据过期或文件暂不可读时会显示相应提示。
+The script detects the Compose `adsb-client` service and reads readsb status directly without rebuilding the receiver. All prompts are in English. In an interactive terminal, it refreshes in place every second, like `top`; press `q` or `Ctrl+C` to exit and restore the terminal. It shows ICAO address, callsign, altitude, speed, heading, coordinates, and signal strength. Rows beyond the window are counted as hidden; enlarge the window to see more. Use `--interval 5` to change the refresh interval, `--once` for one snapshot, `--json` for complete JSON, or `ADSB_CONTAINER` to select a container. Pipes and redirection receive plain text without terminal control characters. Messages explain when no aircraft are present, data is stale, or the file is temporarily unreadable.
 
-交互显示中，变化的单元格以浅蓝色文字高亮一个刷新周期（不改变底色）；新增飞机首次出现时整行高亮。首次打开不高亮，未变化的值使用默认文字颜色。
+Changed cells appear in light blue for one refresh cycle without changing the background. Newly appearing aircraft have their entire row highlighted. The initial display has no highlights, and unchanged values use the default text color.
 
-## 目录
+## Directory layout
 
 ```text
 sky-tracker/
-├── deploy-synology.sh       群晖一键部署脚本
-├── docker-compose.yml       群晖服务编排
-├── runtime/                 kiosk 启动与屏幕/触屏配置脚本
-├── server/                  API、SQLite 和网页
-├── client/                  树莓派 readsb 与上报程序
-├── tests/                   解码、数据库和接口测试
+├── deploy-synology.sh       Synology deployment script
+├── docker-compose.yml      Service orchestration
+├── runtime/                Kiosk startup and display/touch configuration
+├── server/                 API, SQLite, and web UI
+├── client/                 Raspberry Pi readsb and upload agent
+├── tests/                  Decoder, database, and API tests
 ├── DEPLOY_SYNOLOGY.md
 └── DEPLOY_RASPBERRY_PI.md
 ```
 
-## 安全与容量
+## Security and storage
 
-- 写入 API 必须使用部署时随机生成的上报密钥；网页和只读 API 默认不要求登录，适合放在自有局域网或由 DSM 反向代理负责访问控制。
-- 默认端口为 TCP `8931`。
-- HTTPS 直接使用脚本目录旁 `../SSL/privkey.pem` 和 `../SSL/fullchain.pem`，证书目录以只读方式映射进容器。
-- 原始报文量取决于天线位置和空域繁忙程度。默认 90 天通常会积累数 GB 数据；存储较小时可把 `RETENTION_DAYS` 改成 `30`。
-- SQLite 使用 WAL 模式。备份时在项目根目录执行 `sudo docker compose stop adsb-server`，再完整复制 `data/`；备份后执行 `sudo docker compose start adsb-server`。
-- 飞机与航线资料补全默认访问 `https://api.adsbdb.com`。查询在后台单线程限速执行，失败不会阻塞 ADS-B 上报；航线按呼号匹配，可能是计划或常见航线，并不等于本次飞行的实时航路。
+- Write APIs require the randomly generated ingest key. The web UI and read-only APIs do not require login by default; use a trusted LAN or access controls provided by a DSM reverse proxy.
+- The default port is TCP `8931`.
+- HTTPS uses `../SSL/privkey.pem` and `../SSL/fullchain.pem` beside the script directory, mounted read-only into the container.
+- Raw message volume depends on antenna placement and air traffic. The default 90-day retention can consume several GB; set `RETENTION_DAYS=30` for smaller storage.
+- SQLite uses WAL mode. To back up the current Pi deployment, run `sudo docker compose stop adsb-server` from the project root, copy the entire `data/` directory, then run `sudo docker compose start adsb-server`.
+- Aircraft and route enrichment uses `https://api.adsbdb.com` by default. Background queries run in a single rate-limited worker; failures do not block ADS-B uploads. Routes matched by callsign may be scheduled or typical routes rather than the actual route of the current flight.
