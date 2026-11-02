@@ -15,6 +15,7 @@ rm -f "$SKYTRACE_CLOSE_MARKER"
 
 chromium --ozone-platform=wayland --kiosk --no-first-run \
   --disable-session-crashed-bubble \
+  --password-store=basic \
   --user-data-dir=/home/pi/.config/skytrace-chromium \
   "$SKYTRACE_URL" &
 kiosk_pid=$!

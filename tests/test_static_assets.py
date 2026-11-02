@@ -29,6 +29,7 @@ class StaticAssetTests(unittest.TestCase):
         self.assertIn("./runtime/state:/run/skytrace", compose)
         self.assertIn('if [ -e "$SKYTRACE_CLOSE_MARKER" ]', launcher)
         self.assertIn('kill "$kiosk_pid"', launcher)
+        self.assertIn("--password-store=basic", launcher)
         self.assertIn("if (!response.ok) throw new Error", script)
 
     def test_leaflet_is_served_locally(self) -> None:
