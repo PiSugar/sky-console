@@ -98,6 +98,10 @@ The script detects the Compose `adsb-client` service and reads readsb status dir
 
 Changed cells appear in light blue for one refresh cycle without changing the background. Newly appearing aircraft have their entire row highlighted. The initial display has no highlights, and unchanged values use the default text color.
 
+## Model files
+
+Model files are available in the [PiSugar suit-cases repository](https://github.com/PiSugar/suit-cases/tree/main/pi5-whisplay-plus-skytracker).
+
 ## Directory layout
 
 ```text
