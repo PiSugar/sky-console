@@ -2,8 +2,7 @@
 
 The Raspberry Pi deployment is defined by the root `docker-compose.yml`. It runs the API/UI, RTL-SDR receiver, hardware bridge, and Piper TTS as containers. Faster Whisper ASR and Ollama run as separate Docker services on a Mac and are reached over Tailscale.
 
-The active source and device directory is `sky-tracker`. The old local
-`personal-projects/adsb-tracker` copy has been archived and must not be deployed.
+The active source and device directory is `sky-tracker`.
 
 ## Upgraded device (2026-10-21)
 
