@@ -21,3 +21,6 @@ run/
 *.[oO][gG][vV]
 *.3[gG][pP]
 *.3[gG]2
+
+# Generated output
+/output/
