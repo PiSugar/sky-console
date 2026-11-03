@@ -1,5 +1,7 @@
 # SkyTrace ADS-B Console
 
+![SkyTrace ADS-B console with a touchscreen, antenna, and red control button](docs/images/skytrace-console.jpeg)
+
 This project is developed and deployed from `sky-tracker` (remote repository: `PiSugar/sky-console`).
 
 SkyTrace receives 1090 MHz ADS-B signals on a Raspberry Pi and provides a live map, aircraft information, hardware controls, and optional voice and LLM questions. Docker Compose runs the receiver, API, hardware bridge, and TTS on the device. A Mac provides ASR and model inference. Device settings and map tiles persist locally.
