@@ -126,3 +126,9 @@ sky-tracker/
 - Raw message volume depends on antenna placement and air traffic. The default 90-day retention can consume several GB; set `RETENTION_DAYS=30` for smaller storage.
 - SQLite uses WAL mode. To back up the current Pi deployment, run `sudo docker compose stop adsb-server` from the project root, copy the entire `data/` directory, then run `sudo docker compose start adsb-server`.
 - Aircraft and route enrichment uses `https://api.adsbdb.com` by default. Background queries run in a single rate-limited worker; failures do not block ADS-B uploads. Routes matched by callsign may be scheduled or typical routes rather than the actual route of the current flight.
+
+## License
+
+Original project code and documentation are licensed under the [MIT License](LICENSE).
+
+Third-party components, including bundled Leaflet assets, readsb, and the speech and model services used by the Docker deployments, remain subject to their respective licenses. The MIT License does not replace those licenses or the terms applicable to model weights, external data, map tiles, or separately linked hardware design files. Leaflet's license is included in [server/app/static/vendor/leaflet/LICENSE](server/app/static/vendor/leaflet/LICENSE).
